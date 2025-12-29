@@ -1,0 +1,106 @@
+import { useEffect, useRef, useState } from "react";
+import { Chess } from "chess.js";
+
+/**
+ * Minimal chess controller that exposes a single object (chess).
+ * Expand this as needed (move validation UI helpers, PGN export, history, etc).
+ */
+export function useChessController(clock) {
+  const chessGameRef = useRef(new Chess());
+  const chessGame = chessGameRef.current;
+
+  const [chessPosition, setChessPosition] = useState(chessGame.fen());
+  const [moveHistory, setMoveHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(null);
+  const [turn, setTurn] = useState(chessGame.turn()); // 'w' or 'b'
+
+  const [promotionMove, setPromotionMove] = useState(null);
+  const [moveFrom, setMoveFrom] = useState("");
+  const [optionSquares, setOptionSquares] = useState({});
+  const [playerColor, setPlayerColor] = useState("w");
+
+  useEffect(() => {
+    if (clock?.isActive) clock.setActivePlayer(turn);
+  }, [turn, clock])
+
+  // return an object (not destructured) so caller uses chess.someProp
+  function getMoveOptions(square) {
+    const moves = chessGame.moves({ square, verbose: true });
+    if (!moves || moves.length === 0) return false;
+    const squares = {};
+    moves.forEach((m) => {
+      squares[m.to] = { background: "radial-gradient(circle, rgba(0,0,0,.1) 25%, transparent 25%" };
+    });
+    squares[square] = {
+      background: 'rgba(255, 255, 0, 0.4)'
+    };
+
+    setOptionSquares(squares);
+    return true;
+  }
+
+  function applyLocalMove({ from, to, promotion }) {
+    if (chessGame.isGameOver() || clock.status !== "") return null;
+    try {
+      const move = chessGame.move({ from, to, promotion });
+      if (!move) return null;
+      setChessPosition(chessGame.fen());
+      setMoveHistory((prev) => [...prev, move.san ?? `${from}${to}`]);
+      setHistoryIndex(null);
+      setTurn(chessGame.turn());
+      return move;
+    } catch (e) {
+      console.warn("invalid move", e);
+      return null;
+    }
+  }
+
+  function resetGame() {
+    chessGame.reset();
+    setChessPosition(chessGame.fen());
+    setMoveHistory([]);
+    setHistoryIndex(null);
+    setTurn(chessGame.turn());
+    setPromotionMove(null);
+    setMoveFrom("");
+    setOptionSquares({});
+    setPlayerColor("w");
+    clock.reset();
+
+    console.log("Game reset");
+
+  }
+
+  return {
+    // refs & core
+    chessGameRef,
+    chessGame,
+
+    // state setters/readers
+    chessPosition,
+    setChessPosition,
+    moveHistory,
+    setMoveHistory,
+    historyIndex,
+    setHistoryIndex,
+    turn,
+    setTurn,
+
+    // UI helpers
+    promotionMove,
+    setPromotionMove,
+    moveFrom,
+    setMoveFrom,
+    optionSquares,
+    setOptionSquares,
+
+    // player color for online play
+    playerColor,
+    setPlayerColor,
+
+    // helpers
+    getMoveOptions,
+    applyLocalMove,
+    resetGame,
+  };
+}
