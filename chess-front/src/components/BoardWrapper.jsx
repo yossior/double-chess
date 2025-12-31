@@ -4,7 +4,7 @@ import Controls from "./Controls";
 import Board from "./Board";
 import GameInfo from "./GameInfo";
 import { useChessController } from "../hooks/useChessController";
-import { useStockfish } from "../hooks/useStockfish";
+import { useEngine } from "../hooks/useEngine";
 import { useOnlineGame } from "../hooks/useOnlineGame";
 import ClockView from "./ClockView";
 import useClock from "../hooks/useClock";
@@ -22,7 +22,7 @@ export default function BoardWrapper() {
 
     const clock = useClock();
     const chess = useChessController(clock, { enableClock: mode === "online" });
-    const stockfish = useStockfish(chess.chessGame, chess.setChessPosition, chess, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, skillLevel, clock);
+    const engine = useEngine(chess.chessGame, chess.setChessPosition, chess, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, skillLevel, clock);
     const online = useOnlineGame(
         chess.chessGameRef,
         chess.setChessPosition,
@@ -139,6 +139,7 @@ export default function BoardWrapper() {
                     gameStatus={gameStatus}
                     isMyTurn={isMyTurn}
                     turn={chess.turn}
+                    movesInTurn={chess.movesInTurn}
                 />
             </div>
 
@@ -147,7 +148,7 @@ export default function BoardWrapper() {
                 <Board
                     chess={chess}
                     mode={mode}
-                    opponent={mode === "online" ? online : stockfish}
+                    opponent={mode === "online" ? online : engine}
                     clock={clock}
                     {...boardProps}
                 />
@@ -164,7 +165,7 @@ export default function BoardWrapper() {
                         />
                         
                         <MoveHistory
-                            moves={chess.chessGame.history({ verbose: true })}
+                            moves={chess.moveHistory}
                             viewIndex={viewIndex}
                             onNavigate={setViewIndex}
                         />
@@ -179,7 +180,7 @@ export default function BoardWrapper() {
                     <>
                         <div className="text-sm text-gray-500 text-center py-2">Untimed game</div>
                         <MoveHistory
-                            moves={chess.chessGame.history({ verbose: true })}
+                            moves={chess.moveHistory}
                             viewIndex={viewIndex}
                             onNavigate={setViewIndex}
                         />

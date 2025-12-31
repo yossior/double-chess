@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Chessboard, chessColumnToColumnIndex, fenStringToPositionObject } from "react-chessboard";
 import PromotionModal from "./PromotionModal";
 import usePremoves from "../hooks/usePremoves";
@@ -11,7 +11,7 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
   const isMyTurn = isOnline ? chess.turn === (opponent?.playerColor ?? chess.playerColor) : chess.turn === "w";
 
   // Access raw history array
-  const gameHistory = chess.chessGame.history({ verbose: true });
+  const gameHistory = chess.moveHistory;
   
   // Determine if we are looking at the live/latest board state
   const isAtLatestPosition = viewIndex === null || viewIndex === gameHistory.length - 1;
@@ -25,7 +25,7 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
     opponent,
     onNavigate,
     viewIndex,
-    makeStockfishMove: opponent?.makeStockfishMove
+    makeEngineMove: opponent?.makeEngineMove
   });
 
   // 1. COMPUTE THE BASE FEN (String)
@@ -36,16 +36,9 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
       return chess.chessPosition;
     }
     
-    // If browsing history, calculate the FEN at that specific move
-    const GameConstructor = chess.chessGame.constructor; 
-    const tmpGame = new GameConstructor();
-    
-    // Replay history
-    for (let i = 0; i <= viewIndex; i++) {
-      if (gameHistory[i]) tmpGame.move(gameHistory[i]); 
-    }
-    return tmpGame.fen();
-  }, [viewIndex, chess.chessPosition, gameHistory, chess.chessGame.constructor]);
+    // If browsing history, use the FEN stored in the move object
+    return gameHistory[viewIndex]?.fen || chess.chessPosition;
+  }, [viewIndex, chess.chessPosition, gameHistory]);
 
   // 2. COMPUTE FINAL POSITION (String or Object)
   // If we have premoves, we MUST convert to object to "hack" the visual state.
@@ -74,7 +67,19 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
 
   // Premove logic now handled by `usePremoves` hook (applies premoves when appropriate).
 
-  // Premove clearing on timeout is handled inside `usePremoves`.
+  // Automatic Engine Trigger for Double Move
+  useEffect(() => {
+    if (mode === "local" && !isMyTurn && !chess.chessGame.isGameOver()) {
+       // Double check it's really not my turn (in case of race conditions)
+       // isMyTurn is derived from chess.turn === chess.playerColor
+       // If chess.turn is correct, this is safe.
+       
+       const timer = setTimeout(() => {
+         opponent?.makeEngineMove?.();
+       }, 1000);
+       return () => clearTimeout(timer);
+    }
+  }, [mode, isMyTurn, chess.chessGame, opponent, chess.movesInTurn]);
 
   function handleMove({ from, to, promotion }) {
     if (chess.chessGame.isGameOver() || clock.isTimeout()) return;
@@ -85,11 +90,6 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
 
     if (isOnline) {
       opponent?.sendMoveOnline?.({ from: move.from, to: move.to, promotion: move.promotion });
-    } else {
-      setTimeout(() => {
-        if (chess.chessGame.isGameOver() || clock.isTimeout()) return;
-        opponent?.makeStockfishMove?.()
-      }, 3000);
     }
   }
 
@@ -177,11 +177,6 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
 
     if (isOnline) {
       opponent?.sendMoveOnline?.(move);
-    } else {
-      setTimeout(() => {
-        if (chess.chessGame.isGameOver() || clock.isTimeout()) return;
-        opponent?.makeStockfishMove?.()
-      }, 3000);
     }
     return true;
   }
