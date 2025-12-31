@@ -19,6 +19,7 @@ export function useChessController(clock, { enableClock = true } = {}) {
   const [optionSquares, setOptionSquares] = useState({});
   const [playerColor, setPlayerColor] = useState("w");
   const [clockStarted, setClockStarted] = useState(false);
+  const [movesInTurn, setMovesInTurn] = useState(0);
 
   // When any move (local or remote) is recorded, enable clocks (if allowed)
   useEffect(() => {
@@ -59,9 +60,52 @@ export function useChessController(clock, { enableClock = true } = {}) {
     try {
       const move = chessGame.move({ from, to, promotion });
       if (!move) return null;
-      setChessPosition(chessGame.fen());
-      setMoveHistory((prev) => [...prev, move.san ?? `${from}${to}`]);
+
+      // Double Move Logic
+      if (!chessGame.isGameOver()) {
+        if (movesInTurn === 0) {
+          // First move of the turn
+          // If check, turn ends. Otherwise, same player moves again.
+          if (move.san.includes('+')) {
+            setMovesInTurn(0);
+          } else {
+            // Flip turn back to the player who just moved
+            const fen = chessGame.fen();
+            const parts = fen.split(' ');
+            // parts[1] is the current active color (which just switched). We want to revert it.
+            parts[1] = parts[1] === 'w' ? 'b' : 'w';
+            
+            // FIX: Clear en-passant target to avoid "Invalid FEN: illegal en-passant square" error.
+            // If we flip the turn back, the en-passant target (if any) created by the move 
+            // becomes invalid because the active color doesn't match the target rank.
+            parts[3] = '-';
+            
+            const newFen = parts.join(' ');
+            chessGame.load(newFen);
+            setMovesInTurn(1);
+          }
+        } else {
+          // Second move of the turn
+          setMovesInTurn(0);
+        }
+      } else {
+        setMovesInTurn(0);
+      }
+
+      const fenAfterMove = chessGame.fen();
+      setChessPosition(fenAfterMove);
+      
+      // Store full move object with FEN for history navigation
+      // Note: move.color is who made the move.
+      const moveObject = {
+        ...move,
+        fen: fenAfterMove,
+        color: move.color 
+      };
+      
+      setMoveHistory((prev) => [...prev, moveObject]);
       setHistoryIndex(null);
+      // IMPORTANT: Use the turn from the game instance, which might have been flipped back
       setTurn(chessGame.turn());
       if (enableClock) setClockStarted(true);
       return move;
@@ -82,6 +126,7 @@ export function useChessController(clock, { enableClock = true } = {}) {
     setOptionSquares({});
     setPlayerColor("w");
     setClockStarted(false);
+    setMovesInTurn(0);
     if (clock?.reset) clock.reset();
 
     console.log("Game reset");
@@ -98,6 +143,7 @@ export function useChessController(clock, { enableClock = true } = {}) {
     setChessPosition,
     moveHistory,
     setMoveHistory,
+    movesInTurn,
     historyIndex,
     setHistoryIndex,
     turn,
