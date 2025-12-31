@@ -1,0 +1,5 @@
+# Ignore vendor stockfish builds
+/public/stockfish/*
+
+# Ignore archived/removed files
+/src/archive/*
