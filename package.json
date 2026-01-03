@@ -1,0 +1,12 @@
+{
+  "name": "chess-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix chess-front\" \"npm run dev --prefix chess-server\"",
+    "dev:front": "npm run dev --prefix chess-front",
+    "dev:server": "npm run dev --prefix chess-server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
