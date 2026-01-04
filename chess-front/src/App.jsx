@@ -34,7 +34,7 @@ function App() {
             </nav>
           </div>
           <div>
-            {user ? (
+            {user && (
               <div className="flex items-center gap-4">
                 <span className="text-gray-700 dark:text-gray-300">Welcome, {user.username}</span>
                 <button
@@ -44,13 +44,6 @@ function App() {
                   Logout
                 </button>
               </div>
-            ) : (
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
-                Login / Sign Up
-              </button>
             )}
           </div>
         </div>

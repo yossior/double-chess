@@ -11,11 +11,12 @@ import { io } from "socket.io-client";
  *
  * Important: cleanup calls socket.close() so reconnection stops.
  */
-export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, setHistoryIndex, setTurn, playerColor, setPlayerColor, clock) {
+export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, setHistoryIndex, setTurn, playerColor, setPlayerColor, clock, isUnbalanced = true, setMovesInTurn, onGameOver) {
   const socketRef = useRef(null);
   const [waiting, setWaiting] = useState(false);
   const [gameId, setGameId] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isSpectator, setIsSpectator] = useState(false);
   const initialTime = 300; // Default initial time in seconds
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
 
     const socket = io("http://localhost:5001", {
       reconnection: true,
+      transports: ['websocket', 'polling'],
     });
     socketRef.current = socket;
 
@@ -62,6 +64,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
       setWaiting(false);
       setGameId(gameId);
       setPlayerColor(color);
+      setIsSpectator(false);
 
       // Sync clock state from server
       if (clock?.syncFromServer) {
@@ -80,14 +83,71 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
       }
     });
 
-    socket.on("moveMade", ({ move, fen, turn, whiteMs, blackMs, serverTime }) => {
-      console.log("move made", move);
+    socket.on("spectatorJoined", ({ gameId, fen, turn, whiteMs, blackMs, serverTime, history, isCompleted, movesInTurn, gameResult, winner }) => {
+      console.log("joined as spectator", gameId, "fen:", fen, "history length:", history?.length, "isCompleted:", isCompleted);
+      setWaiting(false);
+      setGameId(gameId);
+      setIsSpectator(true);
+      setPlayerColor(null); // No color for spectators
+
+      // Sync clock state from server
+      if (clock?.syncFromServer) {
+        clock.syncFromServer(whiteMs || initialTime * 1000, blackMs || initialTime * 1000, turn, { startClock: !isCompleted });
+      }
+
+      // If game is completed, notify the game over handler
+      if (isCompleted && onGameOver) {
+        onGameOver({ reason: gameResult || 'game over', winner: winner || null });
+      }
+
+      // For spectators, trust the server-provided history (with FEN) and final FEN
+      try {
+        const chessGame = chessGameRef.current;
+        if (!chessGame) {
+          console.error("Chess game not initialized for spectator");
+          return;
+        }
+
+        chessGame.reset();
+        chessGame.load(fen);
+        setChessPosition(fen);
+        setMoveHistory(history || []);
+        setHistoryIndex(null);
+        setTurn(turn);
+
+        // Sync movesInTurn for spectators
+        if (movesInTurn !== undefined && setMovesInTurn) {
+          setMovesInTurn(movesInTurn);
+        }
+      } catch (e) {
+        console.error("failed to load spectator state", e);
+      }
+    });
+
+    socket.on("moveMade", ({ move, fen, turn, movesInTurn, whiteMs, blackMs, serverTime }) => {
+      console.log("move made", move.san);
       if (!fen) return;
       chessGameRef.current?.load?.(fen);
       setChessPosition(fen);
-      if (move?.san) setMoveHistory((prev) => [...prev, move.san]);
+      
+      // Store full move object with FEN and clock times for proper history navigation
+      if (move) {
+        const moveObject = {
+          ...move,
+          fen: fen,
+          whiteMs: whiteMs,
+          blackMs: blackMs,
+        };
+        setMoveHistory((prev) => [...prev, moveObject]);
+      }
+      
       setHistoryIndex(null);
       setTurn(turn);
+      
+      // Update movesInTurn from server
+      if (movesInTurn !== undefined && setMovesInTurn) {
+        setMovesInTurn(movesInTurn);
+      }
 
       // Sync clock state from server after move (includes starting the clock)
       if (clock?.syncFromServer) {
@@ -105,8 +165,10 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
       setTurn(chessGame.turn());
     });
 
-    socket.on("gameOver", ({ reason }) => {
-      alert(`Game Over: ${reason}`);
+    socket.on("gameOver", ({ reason, winner }) => {
+      if (onGameOver) {
+        onGameOver({ reason, winner });
+      }
       setWaiting(false);
       setGameId(null);
       if (clock?.pause) clock.pause();
@@ -145,6 +207,16 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     socket.emit("findGame", { userId });
   }
 
+  function joinSpecificGame(gameIdToJoin, userId, timeMinutes, incrementSeconds, playerColor) {
+    const socket = socketRef.current;
+    if (!socket || !socket.connected) {
+      console.error("Cannot join game: socket not connected");
+      return;
+    }
+    console.log("🔗 Joining specific game:", gameIdToJoin, "with", timeMinutes, "min +", incrementSeconds, "sec", "color:", playerColor);
+    socket.emit("joinGame", { gameId: gameIdToJoin, userId, timeMinutes, incrementSeconds, playerColor });
+  }
+
   function sendMoveOnline(moveObj) {
     const socket = socketRef.current;
     if (!socket || !socket.connected) {
@@ -154,13 +226,25 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     socket.emit("move", { move: moveObj, gameId });
   }
 
+  function resign() {
+    const socket = socketRef.current;
+    if (!socket || !socket.connected || !gameId) {
+      console.error("Cannot resign: socket not connected or no active game");
+      return;
+    }
+    socket.emit("resign", { gameId });
+  }
+
   return {
     socketRef,
     waiting,
     gameId,
     playerColor,
     isConnected,
+    isSpectator,
     findOnlineGame,
+    joinSpecificGame,
     sendMoveOnline,
+    resign,
   };
 }

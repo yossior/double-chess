@@ -8,38 +8,41 @@ import { useEffect, useRef, useState, useCallback } from 'react';
  * 
  * - evalDepth: Used for evaluating first move candidates (main bottleneck)
  * - depth: Used for fallback second move search (rarely needed)
- * 
- * At evalDepth 6: ~0.2s per position = 4-7 seconds per turn (reasonable)
- * At evalDepth 10: ~1s per position = 20-35 seconds per turn (slow but strong)
  */
 const ENGINE_LEVELS = {
-  1: { depth: 4, evalDepth: 2, approxElo: 400 },   // Beginner - instant, makes obvious mistakes
-  2: { depth: 6, evalDepth: 3, approxElo: 600 },   // Novice - very fast, weak tactics
-  3: { depth: 8, evalDepth: 4, approxElo: 800 },   // Casual - fast, misses combinations
-  4: { depth: 10, evalDepth: 5, approxElo: 1000 }, // Club player - quick, basic tactics
-  5: { depth: 12, evalDepth: 6, approxElo: 1200 }, // Intermediate - balanced speed/strength
-  6: { depth: 14, evalDepth: 7, approxElo: 1400 }, // Advanced - moderate wait, solid play
-  7: { depth: 16, evalDepth: 8, approxElo: 1600 }, // Strong - longer think, good tactics
-  8: { depth: 18, evalDepth: 9, approxElo: 1800 }, // Expert - noticeable wait, strong
-  9: { depth: 20, evalDepth: 10, approxElo: 2000 }, // Master - slow but formidable
-  10: { depth: 22, evalDepth: 12, approxElo: 2200 }, // GM level - very strong, patient play
+  1: { depth: 6, evalDepth: 3, approxElo: 800 },
+  2: { depth: 8, evalDepth: 4, approxElo: 1000 },
+  3: { depth: 10, evalDepth: 5, approxElo: 1200 },
+  4: { depth: 12, evalDepth: 6, approxElo: 1400 },
+  5: { depth: 14, evalDepth: 7, approxElo: 1600 },
+  6: { depth: 16, evalDepth: 8, approxElo: 1800 },
+  7: { depth: 18, evalDepth: 9, approxElo: 2000 },
+  8: { depth: 20, evalDepth: 10, approxElo: 2200 },
+  9: { depth: 22, evalDepth: 12, approxElo: 2400 },
+  10: { depth: 24, evalDepth: 14, approxElo: 2600 },
 };
 
 /**
  * useStockfish Hook - Manages Stockfish engine for double-move chess variant.
  * 
- * Double-Move Algorithm:
- * 1. When it's Stockfish's turn (black), get all possible first moves
+ * Double-Move Algorithm (only when isUnbalanced = true):
+ * 1. When it's Stockfish's turn, get all possible first moves
  * 2. For each first move:
  *    - If it gives check → evaluate with material count (turn ends immediately)
  *    - If no check → ask Stockfish for best continuation and evaluation
  * 3. Pick the first move with highest evaluation
  * 4. Execute first move, wait 200ms, execute second move
+ * 
+ * Standard Chess (when isUnbalanced = false):
+ * - Simple best move search at configured depth
  */
-export function useStockfish(chessGame, setChessPosition, chessController, setMoveHistory, setHistoryIndex, setTurn, skillLevel, clock) {
+export function useStockfish(chessGame, setChessPosition, chessController, setMoveHistory, setHistoryIndex, setTurn, skillLevel, clock, playerColor = "w", isUnbalanced = true) {
   const stockfishRef = useRef(null);
   const [isStockfishReady, setIsStockfishReady] = useState(false);
   const [isPlayingDoubleMove, setIsPlayingDoubleMove] = useState(false);
+  
+  // Determine Stockfish's color (opposite of player)
+  const stockfishColor = playerColor === "w" ? "b" : "w";
   
   // Refs to avoid stale closures
   const chessControllerRef = useRef(chessController);
@@ -226,14 +229,14 @@ export function useStockfish(chessGame, setChessPosition, chessController, setMo
 
   // --- Flip turn in FEN for double-move variant ---
   const flipTurnInFen = useCallback((fen) => {
-    // After black's first move, chess.js flips turn to white.
-    // But in double-move chess, black gets another move.
-    // We flip it back to black and clear en-passant.
+    // After Stockfish's first move, chess.js flips turn to opponent's color.
+    // But in double-move chess, Stockfish gets another move.
+    // We flip it back to Stockfish's color and clear en-passant.
     const parts = fen.split(' ');
-    parts[1] = parts[1] === 'w' ? 'b' : 'w'; // Flip turn
+    parts[1] = stockfishColor; // Flip back to Stockfish's color
     parts[3] = '-'; // Clear en-passant (important for legal move generation)
     return parts.join(' ');
-  }, []);
+  }, [stockfishColor]);
 
   // --- Evaluate All First Moves and Pick Best ---
   const evaluateAllFirstMoves = useCallback((levelConfig) => {
@@ -264,12 +267,15 @@ export function useStockfish(chessGame, setChessPosition, chessController, setMo
       // If first move gives check, turn ends immediately - use material evaluation
       if (tempGame.inCheck()) {
         const materialScore = evaluateMaterial(tempGame);
+        // If Stockfish is white, we want positive scores (good for white)
+        // If Stockfish is black, we want positive scores (good for black)
+        // evaluateMaterial returns: positive = good for white, negative = good for black
+        // So if Stockfish is white, use as-is. If Stockfish is black, negate it.
+        const adjustedScore = stockfishColor === 'w' ? materialScore : -materialScore;
         candidates.push({
           move1,
           move2: null,
-          // Black wants LOW scores (negative = good for black)
-          // If we give check, the position after is good for us
-          score: -materialScore + 1000,
+          score: adjustedScore + 1000,
           givesCheck: true,
         });
         pending--;
@@ -277,15 +283,17 @@ export function useStockfish(chessGame, setChessPosition, chessController, setMo
         return;
       }
       
-      // First move doesn't give check - flip turn back to black for second move
-      // This simulates that it's still black's turn in double-move chess
+      // First move doesn't give check - flip turn back to Stockfish for second move
+      // This simulates that it's still Stockfish's turn in double-move chess
       const fenAfterMove1 = tempGame.fen();
-      const fenForBlackSecondMove = flipTurnInFen(fenAfterMove1);
+      const fenForStockfishSecondMove = flipTurnInFen(fenAfterMove1);
       
-      // Ask Stockfish for black's best second move from this position
-      queueEvaluation(fenForBlackSecondMove, levelConfig.evalDepth, (evalResult) => {
-        // Stockfish returns score from the perspective of the side to move (black)
-        // Positive = good for black, which is what we want
+      // Ask Stockfish for its best second move from this position
+      queueEvaluation(fenForStockfishSecondMove, levelConfig.evalDepth, (evalResult) => {
+        // Stockfish returns score from the perspective of the side to move
+        // When Stockfish is white (positive = good for white = good for Stockfish)
+        // When Stockfish is black (positive = good for black = good for Stockfish)
+        // So we always want the highest score
         candidates.push({
           move1,
           move2: evalResult.bestMove,
@@ -351,9 +359,12 @@ export function useStockfish(chessGame, setChessPosition, chessController, setMo
     
     // Wait 200ms then play second move
     setTimeout(() => {
-      // Verify it's still black's turn
-      if (chessGame.turn() !== 'b') {
-        console.log('[useStockfish] No longer black\'s turn, skipping second move');
+      // Double-check the state is still valid
+      const controller = chessControllerRef.current;
+      console.log('[useStockfish] After 200ms delay. movesInTurn:', controller.movesInTurn, 'turn:', chessGame.turn(), 'gameOver:', chessGame.isGameOver());
+      
+      if (chessGame.isGameOver()) {
+        console.log('[useStockfish] Game ended before second move');
         isPlayingDoubleMoveRef.current = false;
         setIsPlayingDoubleMove(false);
         return;
@@ -387,7 +398,7 @@ export function useStockfish(chessGame, setChessPosition, chessController, setMo
     queueEvaluation(fen, levelConfig.depth, (result) => {
       isSearchingRef.current = false;
       
-      if (result.bestMove && chessGame.turn() === 'b') {
+      if (result.bestMove && chessGame.turn() === stockfishColor) {
         const from = result.bestMove.substring(0, 2);
         const to = result.bestMove.substring(2, 4);
         const promotion = result.bestMove.length > 4 ? result.bestMove[4] : undefined;
@@ -410,8 +421,8 @@ export function useStockfish(chessGame, setChessPosition, chessController, setMo
       return;
     }
     
-    if (chessGame.turn() !== 'b') {
-      console.log('[useStockfish] Not black\'s turn');
+    if (chessGame.turn() !== stockfishColor) {
+      console.log('[useStockfish] Not Stockfish\'s turn (expected ' + stockfishColor + ', got ' + chessGame.turn() + ')');
       return;
     }
     
@@ -424,16 +435,22 @@ export function useStockfish(chessGame, setChessPosition, chessController, setMo
     const movesInTurn = controller.movesInTurn;
     const levelConfig = ENGINE_LEVELS[skillLevel] || ENGINE_LEVELS[5];
     
-    console.log('[useStockfish] makeStockfishMove called. movesInTurn:', movesInTurn, 'level:', skillLevel);
+    console.log('[useStockfish] makeStockfishMove called. movesInTurn:', movesInTurn, 'level:', skillLevel, 'isUnbalanced:', isUnbalanced);
     
-    if (movesInTurn === 0) {
-      // FIRST MOVE: Evaluate all possible first moves and pick best combo
-      evaluateAllFirstMoves(levelConfig);
-    } else if (movesInTurn === 1) {
-      // SECOND MOVE: Just search for best move directly
+    // Double-move variant logic
+    if (isUnbalanced) {
+      if (movesInTurn === 0) {
+        // FIRST MOVE: Evaluate all possible first moves and pick best combo
+        evaluateAllFirstMoves(levelConfig);
+      } else if (movesInTurn === 1) {
+        // SECOND MOVE: Just search for best move directly
+        playSecondMove(levelConfig);
+      }
+    } else {
+      // Standard chess: just find best move
       playSecondMove(levelConfig);
     }
-  }, [chessGame, clock, skillLevel, isStockfishReady, evaluateAllFirstMoves, playSecondMove]);
+  }, [chessGame, clock, skillLevel, isStockfishReady, evaluateAllFirstMoves, playSecondMove, stockfishColor, isUnbalanced]);
 
   return {
     stockfishRef,

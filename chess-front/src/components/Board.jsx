@@ -3,19 +3,23 @@ import { Chessboard, chessColumnToColumnIndex, fenStringToPositionObject } from 
 import PromotionModal from "./PromotionModal";
 import usePremoves from "../hooks/usePremoves";
 
-export default function Board({ chess, mode = "local", opponent, clock, viewIndex, onNavigate }) {
+export default function Board({ chess, mode = "local", opponent, clock, viewIndex, onNavigate, orientationOverride, gameStarted = false }) {
   const [showAnimations, setShowAnimations] = useState(true);
-  const isOnline = mode === "online";
+  const isFriend = mode === "friend";
+  const isSpectator = isFriend && opponent?.isSpectator;
   const myColor = chess.playerColor ?? "w"; 
-  const boardOrientation = isOnline ? (myColor === "w" ? "white" : "black") : "white";
+  // Spectators always see from white's perspective
+  const baseOrientation = isSpectator ? "white" : (isFriend ? (myColor === "w" ? "white" : "black") : (myColor === "w" ? "white" : "black"));
+  const boardOrientation = orientationOverride || baseOrientation;
   
   // For double-move chess, we need to consider both turn and movesInTurn
-  // In local mode: human is white, AI is black
-  // Human's turn: chess.turn === "w" (regardless of movesInTurn)
-  // AI's turn: chess.turn === "b" (regardless of movesInTurn)
-  const isMyTurn = isOnline 
+  // In local mode: human plays chosen color, Stockfish plays opposite
+  // Human's turn: chess.turn === myColor (regardless of movesInTurn)
+  // Stockfish's turn: chess.turn === opposite of myColor (regardless of movesInTurn)
+  // Spectators never have a turn
+  const isMyTurn = isSpectator ? false : (isFriend 
     ? chess.turn === myColor 
-    : chess.turn === "w"; // In local mode, human is always white
+    : chess.turn === myColor); // In local mode, human plays chosen color
 
   // Access raw history array
   const gameHistory = chess.moveHistory;
@@ -42,7 +46,12 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
     if (viewIndex === null) {
       return chess.chessPosition;
     }
-    
+
+    // Jump to starting position
+    if (viewIndex === -1) {
+      return chess.initialFen;
+    }
+
     // If browsing history, use the FEN stored in the move object
     return gameHistory[viewIndex]?.fen || chess.chessPosition;
   }, [viewIndex, chess.chessPosition, gameHistory]);
@@ -77,13 +86,14 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
   // Automatic Stockfish Trigger for AI Move
   useEffect(() => {
     // Only trigger if:
-    // 1. We're in AI mode (local with Stockfish opponent)
-    // 2. It's NOT the human's turn (black's turn)
-    // 3. The game is not over
-    // 4. We're at the live position (not browsing history)
-    // 5. Stockfish is not currently playing a double-move
+    // 1. Game has been started
+    // 2. We're in AI mode (local with Stockfish opponent)
+    // 3. It's NOT the human's turn (black's turn)
+    // 4. The game is not over
+    // 5. We're at the live position (not browsing history)
+    // 6. Stockfish is not currently playing a double-move
     const isPlayingDoubleMove = opponent?.isPlayingDoubleMove;
-    if (mode === "local" && opponent && !isMyTurn && !chess.chessGame.isGameOver() && viewIndex === null && !isPlayingDoubleMove) {
+    if (gameStarted && mode === "local" && opponent && !isMyTurn && !chess.chessGame.isGameOver() && viewIndex === null && !isPlayingDoubleMove) {
        // Use shorter delay for second move of turn (movesInTurn === 1)
        const delay = chess.movesInTurn === 1 ? 300 : 800;
        const timer = setTimeout(() => {
@@ -91,21 +101,27 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
        }, delay);
        return () => clearTimeout(timer);
     }
-  }, [mode, isMyTurn, chess.chessGame, chess.movesInTurn, opponent, viewIndex, opponent?.isPlayingDoubleMove]);
+  }, [gameStarted, mode, isMyTurn, chess.chessGame, chess.movesInTurn, opponent, viewIndex, opponent?.isPlayingDoubleMove]);
 
   function handleMove({ from, to, promotion }) {
     if (chess.chessGame.isGameOver() || clock.isTimeout()) return;
     if (viewIndex !== null) onNavigate(null); // Snap to live
 
-    const move = chess.applyLocalMove({ from, to, promotion });
+    const move = chess.applyLocalMove({ from, to, promotion }, { recordHistory: !isFriend });
     if (!move) return;
 
-    if (isOnline) {
+    if (isFriend) {
       opponent?.sendMoveOnline?.({ from: move.from, to: move.to, promotion: move.promotion });
     }
   }
 
   function canDragPiece({ piece }) {
+    // Cannot drag if game not started
+    if (!gameStarted) return false;
+    
+    // Spectators cannot drag pieces
+    if (isSpectator) return false;
+    
     // Only allow drag if we are at the latest position and it's our color
     if (!isAtLatestPosition) return false;
     return piece.pieceType[0] === myColor;
@@ -127,6 +143,12 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
   }
 
   function onSquareClick({ square, piece }) {
+    // Cannot click if game not started
+    if (!gameStarted) return;
+    
+    // Spectators cannot click squares
+    if (isSpectator) return;
+    
     if (!isAtLatestPosition) return; // Disable clicks in history
     if (!isMyTurn) return;
 
@@ -147,6 +169,10 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
       const found = moves.find((m) => m.to === square);
       if (!found) {
         const hasMoves = chess.getMoveOptions(square);
+        if (!hasMoves) {
+          // Clear highlights when clicking an invalid square
+          chess.setOptionSquares({});
+        }
         chess.setMoveFrom(hasMoves ? square : "");
         return;
       }
@@ -183,11 +209,11 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
     // Snap to live
     if (viewIndex !== null) onNavigate(null);
 
-    const move = chess.applyLocalMove({ from: sourceSquare, to: targetSquare });
+    const move = chess.applyLocalMove({ from: sourceSquare, to: targetSquare }, { recordHistory: !isFriend });
 
     if (!move) return false;
 
-    if (isOnline) {
+    if (isFriend) {
       opponent?.sendMoveOnline?.(move);
     }
     return true;

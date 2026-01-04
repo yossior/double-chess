@@ -42,12 +42,9 @@ export default function useClock(initialTime = 300) {
         }
     }, [whiteMs, blackMs, status, flag]);
 
-    // 2. Use requestAnimationFrame for precise timing that works in background
+    // 2. Use setInterval for efficient timing (100ms updates for UI, refs for accuracy)
     useEffect(() => {
         if (!isActive || !activePlayer) {
-            if (animationFrameRef.current) {
-                cancelAnimationFrame(animationFrameRef.current);
-            }
             clockStateRef.current.isActive = false;
             return;
         }
@@ -56,32 +53,38 @@ export default function useClock(initialTime = 300) {
         clockStateRef.current.activePlayer = activePlayer;
         clockStateRef.current.lastUpdateTime = Date.now();
 
+        // Update refs every frame for accuracy, but only update React state every 100ms
+        let lastStateUpdate = Date.now();
+        
         const updateClock = () => {
             const now = Date.now();
             const elapsed = now - clockStateRef.current.lastUpdateTime;
             clockStateRef.current.lastUpdateTime = now;
 
             if (clockStateRef.current.activePlayer === "w") {
-                const newWhite = Math.max(0, clockStateRef.current.whiteMs - elapsed);
-                clockStateRef.current.whiteMs = newWhite;
-                setWhiteMs(newWhite);
+                clockStateRef.current.whiteMs = Math.max(0, clockStateRef.current.whiteMs - elapsed);
             } else if (clockStateRef.current.activePlayer === "b") {
-                const newBlack = Math.max(0, clockStateRef.current.blackMs - elapsed);
-                clockStateRef.current.blackMs = newBlack;
-                setBlackMs(newBlack);
+                clockStateRef.current.blackMs = Math.max(0, clockStateRef.current.blackMs - elapsed);
             }
 
-            if (clockStateRef.current.isActive) {
-                animationFrameRef.current = requestAnimationFrame(updateClock);
+            // Only update React state every 100ms to reduce re-renders
+            if (now - lastStateUpdate >= 100) {
+                lastStateUpdate = now;
+                setWhiteMs(clockStateRef.current.whiteMs);
+                setBlackMs(clockStateRef.current.blackMs);
+            }
+
+            // Check for flag
+            if (clockStateRef.current.whiteMs <= 0 || clockStateRef.current.blackMs <= 0) {
+                setWhiteMs(clockStateRef.current.whiteMs);
+                setBlackMs(clockStateRef.current.blackMs);
             }
         };
 
-        animationFrameRef.current = requestAnimationFrame(updateClock);
+        const intervalId = setInterval(updateClock, 16); // ~60fps internally
 
         return () => {
-            if (animationFrameRef.current) {
-                cancelAnimationFrame(animationFrameRef.current);
-            }
+            clearInterval(intervalId);
         };
     }, [activePlayer, isActive]);
 

@@ -5,10 +5,10 @@ import { Chess } from "chess.js";
  * Minimal chess controller that exposes a single object (chess).
  * Expand this as needed (move validation UI helpers, PGN export, history, etc).
  */
-export function useChessController(clock, { enableClock = true } = {}) {
+export function useChessController(clock, { enableClock = true, isUnbalanced = true } = {}) {
   const chessGameRef = useRef(new Chess());
   const chessGame = chessGameRef.current;
-
+  const [initialFen, setInitialFen] = useState(chessGame.fen());
   const [chessPosition, setChessPosition] = useState(chessGame.fen());
   const [moveHistory, setMoveHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(null);
@@ -20,6 +20,7 @@ export function useChessController(clock, { enableClock = true } = {}) {
   const [playerColor, setPlayerColor] = useState("w");
   const [clockStarted, setClockStarted] = useState(false);
   const [movesInTurn, setMovesInTurn] = useState(0);
+  const [resigned, setResigned] = useState(null); // Track resignation
 
   // When any move (local or remote) is recorded, enable clocks (if allowed)
   useEffect(() => {
@@ -55,16 +56,24 @@ export function useChessController(clock, { enableClock = true } = {}) {
     return true;
   }
 
-  function applyLocalMove({ from, to, promotion }) {
-    if (chessGame.isGameOver() || clock.status !== "") return null;
+  function applyLocalMove({ from, to, promotion }, { recordHistory = true } = {}) {
+    if (chessGame.isGameOver() || clock.status !== "" || resigned) return null;
     try {
       const move = chessGame.move({ from, to, promotion });
       if (!move) return null;
 
       // Double Move Logic
+      // In balanced mode: white's first turn is single move only, then double moves for everyone
+      // In unbalanced mode: always double moves
+      const totalMoves = moveHistory.length; // moves before this one
+      const isFirstTurnBalanced = !isUnbalanced && totalMoves === 0 && move.color === 'w';
+      
       if (!chessGame.isGameOver()) {
-        if (movesInTurn === 0) {
-          // First move of the turn
+        if (isFirstTurnBalanced) {
+          // Balanced mode, first turn - white only gets 1 move
+          setMovesInTurn(0);
+        } else if (movesInTurn === 0) {
+          // First move of the turn (double move applies)
           // If check, turn ends. Otherwise, same player moves again.
           if (move.san.includes('+')) {
             setMovesInTurn(0);
@@ -95,15 +104,16 @@ export function useChessController(clock, { enableClock = true } = {}) {
       const fenAfterMove = chessGame.fen();
       setChessPosition(fenAfterMove);
       
-      // Store full move object with FEN for history navigation
-      // Note: move.color is who made the move.
-      const moveObject = {
-        ...move,
-        fen: fenAfterMove,
-        color: move.color 
-      };
-      
-      setMoveHistory((prev) => [...prev, moveObject]);
+      if (recordHistory) {
+        // Store full move object with FEN for history navigation
+        // Note: move.color is who made the move.
+        const moveObject = {
+          ...move,
+          fen: fenAfterMove,
+          color: move.color 
+        };
+        setMoveHistory((prev) => [...prev, moveObject]);
+      }
       setHistoryIndex(null);
       // IMPORTANT: Use the turn from the game instance, which might have been flipped back
       setTurn(chessGame.turn());
@@ -117,7 +127,9 @@ export function useChessController(clock, { enableClock = true } = {}) {
 
   function resetGame() {
     chessGame.reset();
-    setChessPosition(chessGame.fen());
+    const startFen = chessGame.fen();
+    setInitialFen(startFen);
+    setChessPosition(startFen);
     setMoveHistory([]);
     setHistoryIndex(null);
     setTurn(chessGame.turn());
@@ -127,10 +139,16 @@ export function useChessController(clock, { enableClock = true } = {}) {
     setPlayerColor("w");
     setClockStarted(false);
     setMovesInTurn(0);
+    setResigned(null);
     if (clock?.reset) clock.reset();
 
     console.log("Game reset");
+  }
 
+  function resign(color) {
+    setResigned(color);
+    if (clock?.pause) clock.pause();
+    console.log(`${color === "w" ? "White" : "Black"} resigned`);
   }
 
   return {
@@ -144,10 +162,12 @@ export function useChessController(clock, { enableClock = true } = {}) {
     moveHistory,
     setMoveHistory,
     movesInTurn,
+    setMovesInTurn,
     historyIndex,
     setHistoryIndex,
     turn,
     setTurn,
+    resigned,
 
     // UI helpers
     promotionMove,
@@ -165,5 +185,9 @@ export function useChessController(clock, { enableClock = true } = {}) {
     getMoveOptions,
     applyLocalMove,
     resetGame,
+    resign,
+
+    // initial position reference for history navigation
+    initialFen,
   };
 }
