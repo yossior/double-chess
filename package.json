@@ -1,0 +1,12 @@
+{
+  "name": "chess-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix chess-server\" \"npm run dev --prefix chess-front\"",
+    "install:all": "npm install && npm install --prefix chess-server && npm install --prefix chess-front"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

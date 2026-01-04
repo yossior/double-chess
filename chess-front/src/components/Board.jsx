@@ -8,7 +8,14 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
   const isOnline = mode === "online";
   const myColor = chess.playerColor ?? "w"; 
   const boardOrientation = isOnline ? (myColor === "w" ? "white" : "black") : "white";
-  const isMyTurn = isOnline ? chess.turn === (opponent?.playerColor ?? chess.playerColor) : chess.turn === "w";
+  
+  // For double-move chess, we need to consider both turn and movesInTurn
+  // In local mode: human is white, AI is black
+  // Human's turn: chess.turn === "w" (regardless of movesInTurn)
+  // AI's turn: chess.turn === "b" (regardless of movesInTurn)
+  const isMyTurn = isOnline 
+    ? chess.turn === myColor 
+    : chess.turn === "w"; // In local mode, human is always white
 
   // Access raw history array
   const gameHistory = chess.moveHistory;
@@ -25,7 +32,7 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
     opponent,
     onNavigate,
     viewIndex,
-    makeEngineMove: opponent?.makeEngineMove
+    makeStockfishMove: opponent?.makeStockfishMove
   });
 
   // 1. COMPUTE THE BASE FEN (String)
@@ -67,19 +74,24 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
 
   // Premove logic now handled by `usePremoves` hook (applies premoves when appropriate).
 
-  // Automatic Engine Trigger for Double Move
+  // Automatic Stockfish Trigger for AI Move
   useEffect(() => {
-    if (mode === "local" && !isMyTurn && !chess.chessGame.isGameOver()) {
-       // Double check it's really not my turn (in case of race conditions)
-       // isMyTurn is derived from chess.turn === chess.playerColor
-       // If chess.turn is correct, this is safe.
-       
+    // Only trigger if:
+    // 1. We're in AI mode (local with Stockfish opponent)
+    // 2. It's NOT the human's turn (black's turn)
+    // 3. The game is not over
+    // 4. We're at the live position (not browsing history)
+    // 5. Stockfish is not currently playing a double-move
+    const isPlayingDoubleMove = opponent?.isPlayingDoubleMove;
+    if (mode === "local" && opponent && !isMyTurn && !chess.chessGame.isGameOver() && viewIndex === null && !isPlayingDoubleMove) {
+       // Use shorter delay for second move of turn (movesInTurn === 1)
+       const delay = chess.movesInTurn === 1 ? 300 : 800;
        const timer = setTimeout(() => {
-         opponent?.makeEngineMove?.();
-       }, 1000);
+         opponent?.makeStockfishMove?.();
+       }, delay);
        return () => clearTimeout(timer);
     }
-  }, [mode, isMyTurn, chess.chessGame, opponent, chess.movesInTurn]);
+  }, [mode, isMyTurn, chess.chessGame, chess.movesInTurn, opponent, viewIndex, opponent?.isPlayingDoubleMove]);
 
   function handleMove({ from, to, promotion }) {
     if (chess.chessGame.isGameOver() || clock.isTimeout()) return;

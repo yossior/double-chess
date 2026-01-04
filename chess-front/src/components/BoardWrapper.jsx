@@ -4,7 +4,7 @@ import Controls from "./Controls";
 import Board from "./Board";
 import GameInfo from "./GameInfo";
 import { useChessController } from "../hooks/useChessController";
-import { useEngine } from "../hooks/useEngine";
+import { useStockfish } from "../hooks/useStockfish";
 import { useOnlineGame } from "../hooks/useOnlineGame";
 import ClockView from "./ClockView";
 import useClock from "../hooks/useClock";
@@ -14,7 +14,7 @@ import { useUser } from "../context/UserContext";
 export default function BoardWrapper() {
     const [mode, setMode] = useState("local");
     const [startFinding, setStartFinding] = useState(false);
-    const [skillLevel, setSkillLevel] = useState(1);
+    const [skillLevel, setSkillLevel] = useState(5); // Default to Intermediate (balanced)
     const { user } = useUser();
 
     // The state controlling which move is shown (null = Live)
@@ -22,7 +22,7 @@ export default function BoardWrapper() {
 
     const clock = useClock();
     const chess = useChessController(clock, { enableClock: mode === "online" });
-    const engine = useEngine(chess.chessGame, chess.setChessPosition, chess, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, skillLevel, clock);
+    const stockfish = useStockfish(chess.chessGame, chess.setChessPosition, chess, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, skillLevel, clock);
     const online = useOnlineGame(
         chess.chessGameRef,
         chess.setChessPosition,
@@ -148,7 +148,7 @@ export default function BoardWrapper() {
                 <Board
                     chess={chess}
                     mode={mode}
-                    opponent={mode === "online" ? online : engine}
+                    opponent={mode === "online" ? online : stockfish}
                     clock={clock}
                     {...boardProps}
                 />

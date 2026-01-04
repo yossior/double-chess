@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>chess-front</title>
+    <script>
+      if (!crossOriginIsolated) {
+        console.warn("⚠️ Page is not cross-origin isolated. SharedArrayBuffer will not work. Ensure server sends COOP/COEP headers.");
+      } else {
+        console.log("✅ Page is cross-origin isolated. SharedArrayBuffer is available.");
+      }
+    </script>
+    <!-- Stockfish loaded as Web Worker in useEngine.js, not as script -->
   </head>
   <body>
     <div id="root"></div>

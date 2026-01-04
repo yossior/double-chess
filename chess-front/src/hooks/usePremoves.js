@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export default function usePremoves({ chessGame, chessController, clock, isAtLatestPosition, isMyTurn, opponent, onNavigate, viewIndex, makeEngineMove }) {
+export default function usePremoves({ chessGame, chessController, clock, isAtLatestPosition, isMyTurn, opponent, onNavigate, viewIndex, makeStockfishMove }) {
   const [premoves, setPremoves] = useState([]);
   const premovesRef = useRef([]);
 
@@ -39,7 +39,7 @@ export default function usePremoves({ chessGame, chessController, clock, isAtLat
         setPremoves([]);
       }
     }
-  }, [chessGame, clock, isAtLatestPosition, isMyTurn, onNavigate, viewIndex, chessController, opponent, makeEngineMove]);
+  }, [chessGame, clock, isAtLatestPosition, isMyTurn, onNavigate, viewIndex, chessController, opponent, makeStockfishMove]);
 
   function addPremove(p) {
     premovesRef.current = [...premovesRef.current, p];

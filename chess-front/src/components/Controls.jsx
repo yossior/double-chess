@@ -32,7 +32,7 @@ export default function Controls({ mode, onFindOnline, onExitOnline, skillLevel,
             Bot Strength ({skillLevel})
             <input
               type="range"
-              min={0}
+              min={1}
               max={10}
               value={skillLevel}
               onChange={(e) => setSkillLevel(Number(e.target.value))}
