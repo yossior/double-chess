@@ -46,8 +46,9 @@ export default function Rules() {
         <section className="bg-slate-700/30 rounded-xl p-4">
           <h3 className="text-lg font-semibold text-indigo-300 mb-2">🤖 Playing Against the Bot</h3>
           <p className="text-slate-300">
-            The AI opponent uses Stockfish engine with adjustable difficulty levels (1-10), 
-            optimized specifically for double-move chess strategy and tactics.
+            The AI opponent uses <strong className="text-white">FairyMax</strong> engine with adjustable difficulty levels (1-10). 
+            FairyMax natively supports double-move chess and many other chess variants, 
+            providing intelligent and challenging gameplay.
           </p>
         </section>
       </div>

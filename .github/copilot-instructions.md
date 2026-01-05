@@ -24,7 +24,7 @@ The game implements a custom chess variant where **each player gets 2 moves per 
   - `useChessController` - Game state, move validation, history navigation
   - `useChessClock` - Timer logic with increment support
   - `useOnlineGame` - Socket.IO client wrapper
-  - `useEngine` - Stockfish integration for AI opponent
+  - `useEngine` - Engine integration for AI opponent (FairyMax)
   - `usePremoves` - Premove queue for online games
 
 ### Backend (chess-server/)
@@ -91,52 +91,43 @@ ACCESS_TOKEN_SECRET=your-secret-key
 - Both frontend and backend use `chess.js` v1.4.0 for move validation
 - **Important**: FEN manipulation for double-move variant requires **clearing en-passant target** (`parts[3] = '-'`) when flipping turn back ([useChessController.js#L85-L89](../chess-front/src/hooks/useChessController.js#L85-L89))
 
-### Stockfish Integration
-- Uses **Stockfish-lite WASM** via `stockfish.wasm` npm package
-- Files served from [public/stockfish/](../chess-front/public/stockfish/) (stockfish.js, stockfish.wasm, stockfish.worker.js)
-- Loaded via script tag in [index.html](../chess-front/index.html) as global `Stockfish` function
-- Managed in [useEngine.js](../chess-front/src/hooks/useEngine.js)
+### FairyMax Integration
+- Uses **FairyMax WASM** - a chess variant engine that natively supports double-move chess
+- Files served from [public/fairy-max/](../chess-front/public/fairy-max/) (fairymax.wasm, fairymax.worker.js)
+- Loaded as Web Worker and communicates via XBoard/WinBoard protocol
+- Managed in [useFairyMax.js](../chess-front/src/hooks/useFairyMax.js)
 
 **Engine Levels Configuration:**
 ```javascript
 ENGINE_LEVELS = {
-  1: { depth: 6, evalDepth: 4, approxElo: 600 },
+  1: { depth: 2, approxElo: 800 },
   // ... up to
-  10: { depth: 24, evalDepth: 18, approxElo: 2400 },
+  10: { depth: 12, approxElo: 2600 },
 }
 ```
-- `depth`: Full search depth for second move
-- `evalDepth`: Search depth for evaluating first move candidates
+- `depth`: Search depth for move calculation
 
-**Double-Move Algorithm (Queue-Based):**
-1. When it's black's turn (engine), get ALL possible first moves
-2. For each first move, create resulting FEN position:
-   - If move gives check → use material evaluation (turn ends immediately)
-   - If no check → **flip the turn back to black** in the FEN (using `flipTurnInFen`)
-   - Queue the modified FEN for Stockfish evaluation at `evalDepth`
-3. Stockfish finds black's best second move and returns the evaluation
-4. Evaluation queue processes positions **sequentially** (one at a time)
-5. After all evaluations complete, pick the (move1, move2) combo with highest score
-6. Execute first move, wait 200ms, execute cached second move
+**XBoard Protocol Commands:**
+FairyMax uses the XBoard/WinBoard protocol (not UCI):
+- `xboard` - Enable XBoard mode
+- `protover 2` - Use protocol version 2
+- `variant doublemove` - Set double-move chess variant
+- `new` - Start a new game
+- `setboard FEN` - Set the position
+- `sd DEPTH` - Set search depth
+- `go` - Start thinking and make a move
+- `force` - Stop thinking
 
-**Critical: FEN Turn Flip**
-After black's first move, chess.js sets the turn to white. We must flip it back to black
-and clear en-passant before evaluating, since black gets a second move in double-move chess:
-```javascript
-const flipTurnInFen = (fen) => {
-  const parts = fen.split(' ');
-  parts[1] = parts[1] === 'w' ? 'b' : 'w'; // Flip turn
-  parts[3] = '-'; // Clear en-passant
-  return parts.join(' ');
-};
-```
+**Engine Output:**
+- `move MOVE` - The engine's move in coordinate notation (e.g., `move e2e4`)
+- FairyMax handles double-move chess natively, so no complex move queuing is needed
 
 **Key Implementation Details:**
-- `evalQueueRef`: Queue of positions pending evaluation
-- `currentEvalRef`: Current position being evaluated
-- `handleEngineMessage`: Parses `score cp`, `score mate`, and `bestmove` from UCI output
+- FairyMax natively supports chess variants including double-move
+- Communication via Web Worker message passing
+- XBoard protocol is simpler than the previous UCI approach
 - `isPlayingDoubleMove` flag prevents Board.jsx interference during execution
-- Turn guards prevent engine from playing on white's (human's) turn
+- Turn guards prevent engine from playing on human's turn
 
 ### react-chessboard Library
 - Uses `react-chessboard` v5.7.1 for board rendering
@@ -152,9 +143,9 @@ const flipTurnInFen = (fen) => {
 - Keyboard shortcuts: ← / → (prev/next), ↑ / ↓ (start/live) implemented in [BoardWrapper.jsx](../chess-front/src/components/BoardWrapper.jsx#L51-L83)
 
 ### Mode Switching
-- Three modes: `"local"` (vs self), `"ai"` (vs Stockfish), `"online"` (vs player)
-- Clock only enabled for online mode: `enableClock: mode === "online"` 
-- Engine only active in AI mode: `engine.isActive` controlled by mode state
+- Three modes: `"local"` (vs self/AI with FairyMax), `"friend"` (vs player online)
+- Clock only enabled for online mode: `enableClock: mode === "friend"` 
+- Engine only active in local mode when playing against bot
 
 ### Error Handling
 - Backend: Centralized error handler middleware in [auth.middleware.js](../chess-server/middleware/auth.middleware.js)

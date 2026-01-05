@@ -90,12 +90,16 @@ function startServer() {
 // ============================================
 process.on("SIGINT", () => {
   console.log("\n🛑 Shutting down gracefully...");
-  server.close(() => {
+  server.close(async () => {
     console.log("✅ Server closed");
-    mongoose.connection.close(false, () => {
+    try {
+      await mongoose.connection.close(false);
       console.log("✅ MongoDB disconnected");
       process.exit(0);
-    });
+    } catch (err) {
+      console.error("❌ Error disconnecting MongoDB during shutdown:", err);
+      process.exit(1);
+    }
   });
 });
 

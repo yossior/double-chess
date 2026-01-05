@@ -20,6 +20,7 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
   const [playerColor, setPlayerColor] = useState("w");
   const [clockStarted, setClockStarted] = useState(false);
   const [movesInTurn, setMovesInTurn] = useState(0);
+  const movesInTurnRef = useRef(0);
   const [resigned, setResigned] = useState(null); // Track resignation
 
   // When any move (local or remote) is recorded, enable clocks (if allowed)
@@ -71,11 +72,13 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
       if (!chessGame.isGameOver()) {
         if (isFirstTurnBalanced) {
           // Balanced mode, first turn - white only gets 1 move
+          movesInTurnRef.current = 0;
           setMovesInTurn(0);
-        } else if (movesInTurn === 0) {
+        } else if (movesInTurnRef.current === 0) {
           // First move of the turn (double move applies)
           // If check, turn ends. Otherwise, same player moves again.
           if (move.san.includes('+')) {
+            movesInTurnRef.current = 0;
             setMovesInTurn(0);
           } else {
             // Flip turn back to the player who just moved
@@ -91,13 +94,16 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
             
             const newFen = parts.join(' ');
             chessGame.load(newFen);
+            movesInTurnRef.current = 1;
             setMovesInTurn(1);
           }
         } else {
           // Second move of the turn
+          movesInTurnRef.current = 0;
           setMovesInTurn(0);
         }
       } else {
+        movesInTurnRef.current = 0;
         setMovesInTurn(0);
       }
 

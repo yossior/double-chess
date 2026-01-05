@@ -9,7 +9,7 @@ import Rules from "./Rules";
 import About from "./About";
 import { Toast, useToast } from "./Toast";
 import { useChessController } from "../hooks/useChessController";
-import { useStockfish } from "../hooks/useStockfish";
+import { useMarseillaisEngine } from "../hooks/useMarseillaisEngine";
 import { useOnlineGame } from "../hooks/useOnlineGame";
 import ClockView from "./ClockView";
 import useClock from "../hooks/useClock";
@@ -39,7 +39,7 @@ export default function BoardWrapper() {
 
     const clock = useClock();
     const chess = useChessController(clock, { enableClock: mode === "friend", isUnbalanced });
-    const stockfish = useStockfish(chess.chessGame, chess.setChessPosition, chess, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, skillLevel, clock, playerColor, isUnbalanced);
+    const marseillais = useMarseillaisEngine(chess.chessGame, chess.setChessPosition, chess, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, skillLevel, clock, playerColor, isUnbalanced);
     const online = useOnlineGame(
         chess.chessGameRef,
         chess.setChessPosition,
@@ -461,7 +461,7 @@ export default function BoardWrapper() {
                 <Board
                     chess={chess}
                     mode={mode}
-                    opponent={mode === "friend" ? online : stockfish}
+                    opponent={mode === "friend" ? online : marseillais}
                     clock={clock}
                     gameStarted={gameStarted}
                     {...boardProps}
