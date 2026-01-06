@@ -14,12 +14,12 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
   };
 
   return (
-    <div className="bg-slate-800 rounded-xl shadow-xl p-5 w-80 border border-slate-700">
+    <div className="bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-2xl p-6 w-80 border border-slate-700/50">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-semibold text-white">Play vs Bot</h2>
+        <h2 className="text-lg font-semibold text-slate-100">Play vs Bot</h2>
         <button 
           onClick={onBack}
-          className="text-slate-400 hover:text-white transition-colors"
+          className="text-slate-400 hover:text-slate-100 transition-colors"
         >
           ✕
         </button>
@@ -28,7 +28,7 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
       <div className="space-y-4">
         {/* Color Selection */}
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-2">
+          <label className="block text-xs font-medium text-slate-300 mb-2">
             Your Color
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -36,8 +36,8 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
               onClick={() => setSelectedColor('w')}
               className={`py-2 px-3 rounded-lg text-sm font-medium transition-all ${
                 selectedColor === 'w' 
-                  ? 'bg-slate-200 text-slate-900' 
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg border border-blue-500/30' 
+                  : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 border border-slate-600/30'
               }`}
             >
               ⚪ White
@@ -46,8 +46,8 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
               onClick={() => setSelectedColor('b')}
               className={`py-2 px-3 rounded-lg text-sm font-medium transition-all ${
                 selectedColor === 'b' 
-                  ? 'bg-slate-900 text-white ring-1 ring-slate-500' 
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg border border-blue-500/30' 
+                  : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 border border-slate-600/30'
               }`}
             >
               ⚫ Black
@@ -57,7 +57,7 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
 
         {/* Game Variant */}
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-2">
+          <label className="block text-xs font-medium text-slate-300 mb-2">
             Variant
           </label>
           <div className="space-y-2">
@@ -67,11 +67,11 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
                 name="gameMode"
                 checked={isUnbalanced}
                 onChange={() => setIsUnbalanced(true)}
-                className="w-3.5 h-3.5 text-slate-500 bg-slate-700 border-slate-600"
+                className="w-3.5 h-3.5 text-blue-600 bg-slate-700 border-slate-500"
               />
               <div className="ml-2">
-                <span className="text-sm text-slate-200">Unbalanced</span>
-                <span className="text-xs text-slate-500 ml-1">· White starts with 2 moves</span>
+                <span className="text-sm text-slate-100">Unbalanced</span>
+                <span className="text-xs text-slate-400 ml-1">· White starts with 2 moves</span>
               </div>
             </label>
             <label className="flex items-center cursor-pointer">
@@ -80,11 +80,11 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
                 name="gameMode"
                 checked={!isUnbalanced}
                 onChange={() => setIsUnbalanced(false)}
-                className="w-3.5 h-3.5 text-slate-500 bg-slate-700 border-slate-600"
+                className="w-3.5 h-3.5 text-blue-600 bg-slate-700 border-slate-500"
               />
               <div className="ml-2">
-                <span className="text-sm text-slate-200">Balanced</span>
-                <span className="text-xs text-slate-500 ml-1">· White starts with 1 move</span>
+                <span className="text-sm text-slate-100">Balanced</span>
+                <span className="text-xs text-slate-400 ml-1">· White starts with 1 move</span>
               </div>
             </label>
           </div>
@@ -93,7 +93,7 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
         {/* Bot Strength */}
         <div>
           <div className="flex justify-between items-center mb-2">
-            <label className="text-xs font-medium text-slate-400">Bot Strength</label>
+            <label className="text-xs font-medium text-slate-300">Bot Strength</label>
           </div>
           <div className="grid grid-cols-3 gap-2">
             {[1, 2, 3].map((level) => (
@@ -102,8 +102,8 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
                 onClick={() => setSkillLevel(level)}
                 className={`py-2 px-2 rounded-lg text-sm font-medium transition-all ${
                   skillLevel === level
-                    ? 'bg-slate-200 text-slate-900'
-                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg border border-blue-500/30'
+                    : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 border border-slate-600/30'
                 }`}
               >
                 {level === 1 ? 'Easy' : level === 2 ? 'Normal' : 'Hard'}
@@ -115,9 +115,9 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
         {/* Start Button */}
         <button
           onClick={handleStartGame}
-          className="w-full py-3 bg-slate-600 hover:bg-slate-500 text-white font-medium rounded-lg transition-all"
+          className="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-xl hover:shadow-blue-500/50 transform hover:scale-[1.02] border border-blue-500/30"
         >
-          Start Game
+          🎮 Start Game
         </button>
       </div>
     </div>

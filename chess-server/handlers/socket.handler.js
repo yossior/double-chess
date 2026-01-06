@@ -114,8 +114,9 @@ function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = null, i
 
   const { game, role, reconnected } = result;
 
-  // Join socket to the room
+  // Join socket to the room - THIS IS CRITICAL
   socket.join(gameId);
+  console.log(`[Socket] ${socket.id} joined room ${gameId}`);
   
   // If player reconnected, send them current game state
   if (reconnected) {
@@ -162,36 +163,38 @@ function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = null, i
     return;
   }
   
-  // Two players - start the game
+  // Two players - start the game for BOTH players
   const white = game.players.find((p) => p.color === "w");
   const black = game.players.find((p) => p.color === "b");
 
-  // Notify both players individually with their color
+  console.log(`[Game] Game ${gameId} ready to start with ${white?.socketId} (white) vs ${black?.socketId} (black)`);
+
+  // Use io.to(gameId) to broadcast to the entire room
+  const gameStartData = {
+    gameId: game.id,
+    fen: game.chess.fen(),
+    turn: game.chess.turn(),
+    whiteMs: game.whiteMs,
+    blackMs: game.blackMs,
+    serverTime: Date.now(),
+  };
+
+  // Send to each player with their specific color
   if (white?.socketId) {
     io.to(white.socketId).emit("gameStarted", {
-      gameId: game.id,
+      ...gameStartData,
       color: "w",
-      fen: game.chess.fen(),
-      turn: game.chess.turn(),
-      whiteMs: game.whiteMs,
-      blackMs: game.blackMs,
-      serverTime: Date.now(),
     });
   }
 
   if (black?.socketId) {
     io.to(black.socketId).emit("gameStarted", {
-      gameId: game.id,
+      ...gameStartData,
       color: "b",
-      fen: game.chess.fen(),
-      turn: game.chess.turn(),
-      whiteMs: game.whiteMs,
-      blackMs: game.blackMs,
-      serverTime: Date.now(),
     });
   }
 
-  console.log(`[Game] Game ${gameId} started with ${white?.socketId} (white) vs ${black?.socketId} (black)`);
+  console.log(`[Game] Game ${gameId} started - emitted gameStarted to both players`);
 }
 
 /**
@@ -205,7 +208,13 @@ function handleMove(io, socket, gameId, move) {
     return;
   }
 
-  // Broadcast move to both players
+  console.log(`[Move] Game ${gameId}: ${result.move.san} by ${socket.id}`);
+  
+  // Debug: log room membership
+  const room = io.sockets.adapter.rooms.get(gameId);
+  console.log(`[Move] Room ${gameId} has ${room ? room.size : 0} members: ${room ? Array.from(room) : []}`);
+
+  // Broadcast move to ALL clients in the game room (including the sender)
   io.to(gameId).emit("moveMade", {
     move: result.move,
     fen: result.fen,
@@ -216,7 +225,7 @@ function handleMove(io, socket, gameId, move) {
     serverTime: result.serverTime,
   });
 
-  console.log(`[Move] Game ${gameId}: ${result.move.san}`);
+  console.log(`[Move] Game ${gameId}: Broadcasted moveMade event to room`);
 
   // Check if game is over
   const gameOverReason = gameService.isGameOver(gameId);

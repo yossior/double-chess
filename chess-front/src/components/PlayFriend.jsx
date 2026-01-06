@@ -37,12 +37,12 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
   };
 
   return (
-    <div className="bg-slate-800 rounded-xl shadow-xl p-5 w-80 border border-slate-700">
+    <div className="bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-2xl p-6 w-80 border border-slate-700/50">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-semibold text-white">Play a Friend</h2>
+        <h2 className="text-lg font-semibold text-slate-100">Play a Friend</h2>
         <button 
           onClick={onBack}
-          className="text-slate-400 hover:text-white transition-colors"
+          className="text-slate-400 hover:text-slate-100 transition-colors"
         >
           ✕
         </button>
@@ -51,7 +51,7 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
       <div className="space-y-4">
         {/* Color Selection */}
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-2">
+          <label className="block text-xs font-medium text-slate-300 mb-2">
             Your Color
           </label>
           <div className="grid grid-cols-3 gap-2">
@@ -59,28 +59,28 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
               onClick={() => setSelectedColor('w')}
               className={`py-2 px-2 rounded-lg text-sm font-medium transition-all ${
                 selectedColor === 'w' 
-                  ? 'bg-slate-200 text-slate-900' 
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg border border-purple-500/30' 
+                  : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 border border-slate-600/30'
               }`}
             >
               ⚪ White
             </button>
             <button
               onClick={() => setSelectedColor('random')}
-              className={`py-2 px-2 rounded-lg text-sm font-medium transition-all ${
+              className={`py-2 px-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1 ${
                 selectedColor === 'random' 
-                  ? 'bg-slate-600 text-white' 
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg border border-purple-500/30' 
+                  : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 border border-slate-600/30'
               }`}
             >
-              🎲 Random
+              <span>🎲</span><span>Random</span>
             </button>
             <button
               onClick={() => setSelectedColor('b')}
               className={`py-2 px-2 rounded-lg text-sm font-medium transition-all ${
                 selectedColor === 'b' 
-                  ? 'bg-slate-900 text-white ring-1 ring-slate-500' 
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg border border-purple-500/30' 
+                  : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 border border-slate-600/30'
               }`}
             >
               ⚫ Black
@@ -90,7 +90,7 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
 
         {/* Game Variant */}
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-2">
+          <label className="block text-xs font-medium text-slate-300 mb-2">
             Variant
           </label>
           <div className="space-y-2">
@@ -100,11 +100,11 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
                 name="gameMode"
                 checked={isUnbalanced}
                 onChange={() => setIsUnbalanced(true)}
-                className="w-3.5 h-3.5 text-slate-500 bg-slate-700 border-slate-600"
+                className="w-3.5 h-3.5 text-purple-600 bg-slate-700 border-slate-500"
               />
               <div className="ml-2">
-                <span className="text-sm text-slate-200">Unbalanced</span>
-                <span className="text-xs text-slate-500 ml-1">· White starts with 2 moves</span>
+                <span className="text-sm text-slate-100">Unbalanced</span>
+                <span className="text-xs text-slate-400 ml-1">· White starts with 2 moves</span>
               </div>
             </label>
             <label className="flex items-center cursor-pointer">
@@ -113,11 +113,11 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
                 name="gameMode"
                 checked={!isUnbalanced}
                 onChange={() => setIsUnbalanced(false)}
-                className="w-3.5 h-3.5 text-slate-500 bg-slate-700 border-slate-600"
+                className="w-3.5 h-3.5 text-purple-600 bg-slate-700 border-slate-500"
               />
               <div className="ml-2">
-                <span className="text-sm text-slate-200">Balanced</span>
-                <span className="text-xs text-slate-500 ml-1">· White starts with 1 move</span>
+                <span className="text-sm text-slate-100">Balanced</span>
+                <span className="text-xs text-slate-400 ml-1">· White starts with 1 move</span>
               </div>
             </label>
           </div>
@@ -125,15 +125,15 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
 
         {/* Time Controls - Combined */}
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-2">
+          <label className="block text-xs font-medium text-slate-300 mb-2">
             Time Control
           </label>
-          <div className="bg-slate-700/50 rounded-lg p-3 space-y-3">
+          <div className="bg-slate-700/30 rounded-lg p-3 space-y-3 border border-slate-600/30 backdrop-blur-sm">
             {/* Time per side */}
             <div>
               <div className="flex justify-between items-center mb-1">
                 <span className="text-xs text-slate-400">Time per side</span>
-                <span className="text-xs text-slate-300">{startTime} min</span>
+                <span className="text-xs text-slate-200">{startTime} min</span>
               </div>
               <input
                 type="range"
@@ -141,14 +141,14 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
                 max="30"
                 value={startTime}
                 onChange={(e) => setStartTime(Number(e.target.value))}
-                className="w-full h-1.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-slate-400"
+                className="w-full h-1.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
               />
             </div>
             {/* Increment */}
             <div>
               <div className="flex justify-between items-center mb-1">
                 <span className="text-xs text-slate-400">Increment</span>
-                <span className="text-xs text-slate-300">{increment} sec</span>
+                <span className="text-xs text-slate-200">{increment} sec</span>
               </div>
               <input
                 type="range"
@@ -156,7 +156,7 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
                 max="30"
                 value={increment}
                 onChange={(e) => setIncrement(Number(e.target.value))}
-                className="w-full h-1.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-slate-400"
+                className="w-full h-1.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
               />
             </div>
           </div>
@@ -165,9 +165,9 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
         {/* Create Game Button */}
         <button
           onClick={handleCreateGame}
-          className="w-full py-3 bg-slate-600 hover:bg-slate-500 text-white font-medium rounded-lg transition-all"
+          className="w-full py-3 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-xl hover:shadow-purple-500/50 transform hover:scale-[1.02] border border-purple-500/30"
         >
-          Create Game & Copy Link
+          🎮 Create Game & Copy Link
         </button>
         
         {gameLink && (
@@ -175,11 +175,11 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
             <input
               readOnly
               value={gameLink}
-              className="w-full text-xs px-3 py-2 rounded-lg bg-slate-700 text-slate-300 border border-slate-600 focus:outline-none"
+              className="w-full text-xs px-3 py-2 rounded-lg bg-slate-700/50 text-slate-200 border border-slate-600/50 focus:outline-none backdrop-blur-sm"
             />
             <button
               onClick={handleCopyLink}
-              className="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium rounded-lg transition-all"
+              className="w-full py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-200 text-sm font-medium rounded-lg transition-all border border-slate-600/50"
             >
               Copy Link Again
             </button>
