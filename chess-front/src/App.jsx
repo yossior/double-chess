@@ -11,45 +11,8 @@ function App() {
   const { user, logout } = useUser();
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
-      <header className="bg-white dark:bg-gray-800 shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <div className="flex items-center gap-8">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Chess</h1>
-            <nav className="flex gap-4">
-              <button 
-                onClick={() => setView('game')}
-                className={`px-3 py-2 rounded-md text-sm font-medium ${view === 'game' ? 'bg-gray-900 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
-              >
-                Play
-              </button>
-              {user && (
-                <button 
-                  onClick={() => setView('history')}
-                  className={`px-3 py-2 rounded-md text-sm font-medium ${view === 'history' ? 'bg-gray-900 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
-                >
-                  History
-                </button>
-              )}
-            </nav>
-          </div>
-          <div>
-            {user && (
-              <div className="flex items-center gap-4">
-                <span className="text-gray-700 dark:text-gray-300">Welcome, {user.username}</span>
-                <button
-                  onClick={logout}
-                  className="text-sm text-red-600 hover:text-red-800"
-                >
-                  Logout
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <div className="min-h-screen w-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800">
+      <main className="w-full">
         {view === 'game' ? <BoardWrapper /> : <HistoryView />}
       </main>
 

@@ -66,23 +66,23 @@ export default function AuthModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl w-96 relative">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-slate-800/95 backdrop-blur-xl p-8 rounded-2xl shadow-2xl w-96 relative border border-slate-700/50">
         <button 
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-100 transition-colors text-xl"
         >
           ✕
         </button>
 
-        <h2 className="text-2xl font-bold mb-6 text-center dark:text-white">
+        <h2 className="text-2xl font-bold mb-6 text-center text-slate-100">
           {mode === 'login' && 'Login'}
           {mode === 'signup' && 'Create Account'}
           {mode === 'forgot' && 'Reset Password'}
         </h2>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-3 rounded-lg mb-4 backdrop-blur-sm">
             {error}
           </div>
         )}
@@ -91,52 +91,52 @@ export default function AuthModal({ onClose }) {
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Username</label>
+                <label className="block text-sm font-medium text-slate-300">Username</label>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2"
+                  className="mt-1 block w-full rounded-lg border border-slate-600 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 bg-slate-700/50 text-slate-100 p-2 placeholder-slate-400"
                   required
                 />
               </div>
             )}
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
+              <label className="block text-sm font-medium text-slate-300">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2"
+                className="mt-1 block w-full rounded-lg border border-slate-600 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 bg-slate-700/50 text-slate-100 p-2 placeholder-slate-400"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
+              <label className="block text-sm font-medium text-slate-300">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2"
+                className="mt-1 block w-full rounded-lg border border-slate-600 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 bg-slate-700/50 text-slate-100 p-2 placeholder-slate-400"
                 required
               />
             </div>
 
             <button
               type="submit"
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 border border-blue-500/30"
             >
               {mode === 'login' ? 'Sign In' : 'Sign Up'}
             </button>
 
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+                <div className="w-full border-t border-slate-600"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white dark:bg-gray-800 text-gray-500">Or continue with</span>
+                <span className="px-2 bg-slate-800/95 text-slate-400">Or continue with</span>
               </div>
             </div>
 
@@ -150,16 +150,16 @@ export default function AuthModal({ onClose }) {
           </form>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
+            <p className="text-sm text-slate-300">
               Enter your email address and we'll send you a link to reset your password.
             </p>
             <input
               type="email"
               placeholder="Email address"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2"
+              className="block w-full rounded-lg border border-slate-600 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 bg-slate-700/50 text-slate-100 p-2 placeholder-slate-400"
             />
             <button
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 border border-blue-500/30"
               onClick={() => alert('Password reset link sent (simulated)')}
             >
               Send Reset Link
@@ -170,25 +170,25 @@ export default function AuthModal({ onClose }) {
         <div className="mt-6 text-center text-sm">
           {mode === 'login' && (
             <>
-              <button onClick={() => setMode('forgot')} className="text-blue-600 hover:text-blue-500 block w-full mb-2">
+              <button onClick={() => setMode('forgot')} className="text-blue-400 hover:text-blue-300 block w-full mb-2">
                 Forgot password?
               </button>
-              <span className="text-gray-600 dark:text-gray-400">Don't have an account? </span>
-              <button onClick={() => setMode('signup')} className="text-blue-600 hover:text-blue-500 font-medium">
+              <span className="text-slate-400">Don't have an account? </span>
+              <button onClick={() => setMode('signup')} className="text-blue-400 hover:text-blue-300 font-medium">
                 Sign up
               </button>
             </>
           )}
           {mode === 'signup' && (
             <>
-              <span className="text-gray-600 dark:text-gray-400">Already have an account? </span>
-              <button onClick={() => setMode('login')} className="text-blue-600 hover:text-blue-500 font-medium">
+              <span className="text-slate-400">Already have an account? </span>
+              <button onClick={() => setMode('login')} className="text-blue-400 hover:text-blue-300 font-medium">
                 Log in
               </button>
             </>
           )}
           {mode === 'forgot' && (
-            <button onClick={() => setMode('login')} className="text-blue-600 hover:text-blue-500 font-medium">
+            <button onClick={() => setMode('login')} className="text-blue-400 hover:text-blue-300 font-medium">
               Back to Login
             </button>
           )}
