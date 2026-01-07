@@ -4,12 +4,18 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
   const [selectedColor, setSelectedColor] = useState(initialPlayerColor);
   const [skillLevel, setSkillLevel] = useState(initialSkillLevel);
   const [isUnbalanced, setIsUnbalanced] = useState(initialIsUnbalanced);
+  const [isTimed, setIsTimed] = useState(false);
+  const [timeMinutes, setTimeMinutes] = useState(3);
+  const [incrementSeconds, setIncrementSeconds] = useState(2);
 
   const handleStartGame = () => {
     onStartGame({
       color: selectedColor,
       skillLevel,
-      isUnbalanced
+      isUnbalanced,
+      isTimed,
+      timeMinutes: isTimed ? timeMinutes : null,
+      incrementSeconds: isTimed ? incrementSeconds : null
     });
   };
 
@@ -88,6 +94,49 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
               </div>
             </label>
           </div>
+        </div>
+
+        {/* Game Timing */}
+        <div>
+          <label className="flex items-center cursor-pointer mb-2">
+            <input
+              type="checkbox"
+              checked={isTimed}
+              onChange={() => setIsTimed(!isTimed)}
+              className="w-3.5 h-3.5 text-blue-600 bg-slate-700 border-slate-500"
+            />
+            <span className="ml-2 text-sm text-slate-100">Timed Game</span>
+          </label>
+          {isTimed && (
+            <div className="space-y-3 bg-slate-700/30 p-3 rounded-lg">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-2">
+                  Initial Time: {timeMinutes}m
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="30"
+                  value={timeMinutes}
+                  onChange={(e) => setTimeMinutes(Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-2">
+                  Increment: {incrementSeconds}s
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="10"
+                  value={incrementSeconds}
+                  onChange={(e) => setIncrementSeconds(Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Bot Strength */}

@@ -6,6 +6,7 @@ import GameInfo from "./GameInfo";
 import PlayFriend from "./PlayFriend";
 import PlayBot from "./PlayBot";
 import About from "./About";
+import RulesModal from "./RulesModal";
 import { Toast, useToast } from "./Toast";
 import { useChessController } from "../hooks/useChessController";
 import { useMarseillaisEngine } from "../hooks/useMarseillaisEngine";
@@ -20,6 +21,7 @@ export default function BoardWrapper() {
     const [showPlayFriend, setShowPlayFriend] = useState(false);
     const [showPlayBot, setShowPlayBot] = useState(false);
     const [showAbout, setShowAbout] = useState(false);
+    const [showRules, setShowRules] = useState(false);
     const [startFinding, setStartFinding] = useState(false);
     const [skillLevel, setSkillLevel] = useState(2); // Default to Normal (level 2)
     const [playerColor, setPlayerColor] = useState("w"); // Default to White
@@ -29,6 +31,9 @@ export default function BoardWrapper() {
     const [flipBoard, setFlipBoard] = useState(false);
     const [gameOverInfo, setGameOverInfo] = useState(null);
     const [gameStarted, setGameStarted] = useState(true); // Game enabled by default
+    const [isBotGameTimed, setIsBotGameTimed] = useState(false);
+    const [botTimeMinutes, setBotTimeMinutes] = useState(3);
+    const [botIncrementSeconds, setBotIncrementSeconds] = useState(2);
     const { user } = useUser();
     const { toast, showToast } = useToast();
 
@@ -36,8 +41,8 @@ export default function BoardWrapper() {
     const [viewIndex, setViewIndex] = useState(null);
 
     const clock = useClock();
-    const chess = useChessController(clock, { enableClock: mode === "friend", isUnbalanced });
-    const marseillais = useMarseillaisEngine(chess.chessGame, chess.setChessPosition, chess, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, skillLevel, clock, playerColor, isUnbalanced);
+    const chess = useChessController(clock, { enableClock: mode === "friend" || isBotGameTimed, isUnbalanced, gameMode: mode });
+    const marseillais = useMarseillaisEngine(chess.chessGame, chess.setChessPosition, chess, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, skillLevel, clock, playerColor, isUnbalanced, isBotGameTimed ? botIncrementSeconds : 0);
     const online = useOnlineGame(
         chess.chessGameRef,
         chess.setChessPosition,
@@ -62,19 +67,43 @@ export default function BoardWrapper() {
         const gameId = pathMatch ? pathMatch[1] : null;
         
         if (gameId) {
-            // Joining via shared link
+            // Joining via shared link - check if we have stored player info for this game
+            const storedInfo = localStorage.getItem(`chess_game_${gameId}`);
+            let playerInfo = null;
+            
+            if (storedInfo) {
+                try {
+                    playerInfo = JSON.parse(storedInfo);
+                    console.log('[BoardWrapper] Found stored player info for reconnection:', playerInfo);
+                } catch (e) {
+                    console.error('Failed to parse stored game info', e);
+                }
+            }
+            
             setMode('friend');
             setShowPlayFriend(false);
             setPendingGameId(gameId);
             setGameStarted(true);
+            
+            // If we have player info, restore it for reconnection
+            if (playerInfo) {
+                setPendingCreateSettings({
+                    gameId,
+                    timeMinutes: playerInfo.timeMinutes || 3,
+                    incrementSeconds: playerInfo.incrementSeconds || 2,
+                    color: playerInfo.color || 'w',
+                    isUnbalanced: playerInfo.isUnbalanced !== undefined ? playerInfo.isUnbalanced : true
+                });
+            }
         }
     }, []);
 
     // Join game when online connection is ready and we have a pending game ID
     useEffect(() => {
-        if (pendingGameId && online?.isConnected) {
+        if (pendingGameId && online?.isConnected && !pendingCreateSettings) {
+            // Simple rejoin without stored settings (e.g., from sharing link for first time)
             online.joinSpecificGame(pendingGameId, user?.id);
-            setPendingGameId(null); // Clear pending ID after joining
+            setPendingGameId(null);
         }
 
         if (pendingCreateSettings && online?.isConnected) {
@@ -83,18 +112,20 @@ export default function BoardWrapper() {
                 user?.id,
                 pendingCreateSettings.timeMinutes,
                 pendingCreateSettings.incrementSeconds,
-                pendingCreateSettings.color
+                pendingCreateSettings.color,
+                pendingCreateSettings.isUnbalanced
             );
+            setPendingGameId(null);
             setPendingCreateSettings(null);
         }
     }, [pendingGameId, pendingCreateSettings, online?.isConnected, online, user?.id]);
 
-    // Pause/clear clocks when leaving friend mode
+    // Pause/clear clocks when leaving friend mode (unless entering timed local game)
     useEffect(() => {
-        if (mode !== "friend" && clock?.pause) {
+        if (mode !== "friend" && !isBotGameTimed && clock?.pause) {
             clock.pause();
         }
-    }, [mode, clock]);
+    }, [mode, isBotGameTimed, clock]);
 
     // Sync playerColor in local mode
     useEffect(() => {
@@ -102,6 +133,24 @@ export default function BoardWrapper() {
             chess.setPlayerColor(playerColor);
         }
     }, [playerColor, mode, chess]);
+
+    // Trigger engine move when it should play first (engine is White, player is Black)
+    useEffect(() => {
+        if (mode !== "local" || !gameStarted) return;
+        if (playerColor !== 'b') return; // Only when player is Black
+        if (chess.moveHistory.length > 0) return; // Only at game start
+        if (!marseillais?.isReady) return;
+        
+        // Check if it's actually the engine's turn (white's turn when player is black)
+        if (chess.chessGame.turn() === 'w') {
+            const timer = setTimeout(() => {
+                if (marseillais?.makeEngineMove) {
+                    marseillais.makeEngineMove();
+                }
+            }, 100);
+            return () => clearTimeout(timer);
+        }
+    }, [mode, gameStarted, playerColor, chess.moveHistory.length, marseillais?.isReady, chess.chessGame]);
 
     // Auto-reset to "Live" when a real move happens
     useEffect(() => {
@@ -185,12 +234,23 @@ export default function BoardWrapper() {
         window.history.pushState({}, '', '/');
         
         // Apply bot game settings
-        setPlayerColor(settings.color);
         setSkillLevel(settings.skillLevel);
         setIsUnbalanced(settings.isUnbalanced);
+        setIsBotGameTimed(settings.isTimed || false);
+        setBotTimeMinutes(settings.timeMinutes || 3);
+        setBotIncrementSeconds(settings.incrementSeconds || 2);
         
-        // Reset the game with new settings
-        chess.resetGame();
+        if (settings.isTimed) {
+            clock.reset({ initialSeconds: (settings.timeMinutes || 3) * 60 });
+            // Clock will start automatically after first move (via useChessController)
+        }
+        
+        // Reset the game with new settings (preserve clock if timed)
+        chess.resetGame({ keepClock: settings.isTimed });
+        
+        // Set player color AFTER resetGame (which resets it to 'w')
+        setPlayerColor(settings.color);
+        chess.setPlayerColor(settings.color);
     }
 
     function handleStartFriendGame(settings) {
@@ -203,16 +263,28 @@ export default function BoardWrapper() {
         // Update URL without time/increment parameters
         window.history.pushState({}, '', `/game/${settings.gameId}`);
         
+        // Store game settings in localStorage for reconnection
+        const playerInfo = {
+            gameId: settings.gameId,
+            timeMinutes: settings.timeMinutes,
+            incrementSeconds: settings.incrementSeconds,
+            color: settings.color,
+            isUnbalanced: settings.isUnbalanced
+        };
+        localStorage.setItem(`chess_game_${settings.gameId}`, JSON.stringify(playerInfo));
+        console.log('[BoardWrapper] Stored player info for reconnection:', playerInfo);
+        
         // Reset the game completely
         chess.resetGame();
         
         // Initialize game with friend settings
         chess.setPlayerColor(settings.color);
+        setIsUnbalanced(settings.isUnbalanced);
         clock.reset({ initialSeconds: settings.timeMinutes * 60 });
         
-        // Join/create online game with the gameId, passing the desired color
+        // Join/create online game with the gameId, passing the desired color and isUnbalanced
         if (online?.isConnected) {
-            online.joinSpecificGame(settings.gameId, user?.id, settings.timeMinutes, settings.incrementSeconds, settings.color);
+            online.joinSpecificGame(settings.gameId, user?.id, settings.timeMinutes, settings.incrementSeconds, settings.color, settings.isUnbalanced);
         } else {
             setPendingCreateSettings(settings);
         }
@@ -263,6 +335,13 @@ export default function BoardWrapper() {
         // when online.isConnected flips to true, this effect re-runs and will call findOnlineGame
     }, [startFinding, online?.isConnected, online, handleOnlineStarted, user]);
 
+    // Stop clocks when game is over in online friend mode
+    useEffect(() => {
+        if (mode === 'friend' && gameOverInfo) {
+            clock.pause();
+        }
+    }, [gameOverInfo, mode, clock]);
+
     // Add beforeunload warning when there's an active game
     useEffect(() => {
         const handleBeforeUnload = (e) => {
@@ -298,7 +377,7 @@ export default function BoardWrapper() {
 
     const statusBanner = gameOverInfo
         ? (gameOverInfo.winner 
-            ? `${gameOverInfo.winner.charAt(0).toUpperCase() + gameOverInfo.winner.slice(1)} wins by ${gameOverInfo.reason}` 
+            ? `${gameOverInfo.winner.charAt(0).toUpperCase() + gameOverInfo.winner.slice(1)} won by ${gameOverInfo.reason}` 
             : (gameOverInfo.reason === 'draw' ? 'Draw' : `Draw by ${gameOverInfo.reason}`))
         : (clock.status || gameStatus || 'Game in progress');
 
@@ -324,7 +403,7 @@ export default function BoardWrapper() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800">
+        <div className="flex flex-col h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 overflow-hidden">
             <Toast toast={toast} />
             
             {/* PlayFriend Modal Overlay */}
@@ -357,6 +436,11 @@ export default function BoardWrapper() {
             )}
 
             {/* Rules Modal Overlay */}
+            {showRules && (
+                <RulesModal onClose={() => setShowRules(false)} />
+            )}
+
+            {/* About Modal Overlay */}
             {showAbout && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={() => setShowAbout(false)}>
                     <div className="my-8" onClick={(e) => e.stopPropagation()}>
@@ -372,26 +456,34 @@ export default function BoardWrapper() {
             )}
 
             {/* Top Navigation Bar */}
-            <div className="bg-slate-900/95 backdrop-blur-xl border-b border-slate-700/50 px-2 py-2 md:px-4 md:py-3 sticky top-0 z-40 shadow-lg shadow-slate-900/50">
-                <div className="max-w-7xl mx-auto flex justify-between items-center">
+            <div className="flex-shrink-0 bg-slate-900/95 backdrop-blur-xl border-b border-slate-700/50 px-2 py-1 md:px-4 md:py-3 z-40 shadow-lg shadow-slate-900/50 w-full overflow-x-auto">
+                <div className="flex justify-between items-center gap-1 md:gap-2 whitespace-nowrap">
                     <h1 
-                        className="text-[10px] md:text-lg lg:text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent cursor-pointer hover:from-blue-300 hover:to-purple-300 transition-all whitespace-nowrap"
+                        className="text-xs md:text-lg lg:text-xl font-bold bg-linear-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent cursor-pointer hover:from-blue-300 hover:to-purple-300 transition-all flex-shrink-0"
                         onClick={() => {
+                            // Full reset: clear all state and disconnect from online game
+                            if (online?.disconnect) {
+                                online.disconnect();
+                            }
                             setMode("local");
                             setGameStarted(true);
                             setShowPlayFriend(false);
+                            setShowPlayBot(false);
                             setGameOverInfo(null);
                             setFlipBoard(false);
+                            setPlayerColor("w");
+                            setIsUnbalanced(true);
                             window.history.pushState({}, '', '/');
                             chess.resetGame();
+                            clock?.pause?.();
                         }}
                     >
                         ♟️ Double-Move Chess
                     </h1>
-                    <div className="flex gap-1 md:gap-2 items-center">
+                    <div className="flex gap-1 md:gap-2 items-center flex-shrink-0">
                         <button
                             onClick={() => setFlipBoard((f) => !f)}
-                            className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white text-xs md:text-sm font-medium rounded-md md:rounded-lg transition-all shadow-md hover:shadow-lg border border-slate-600/50 transform hover:scale-105"
+                            className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white text-xs md:text-sm font-medium rounded-sm md:rounded-lg transition-all shadow-md hover:shadow-lg border border-slate-600/50 transform hover:scale-105 flex-shrink-0"
                         >
                             <span className="hidden md:inline">🔄 Flip Board</span>
                             <span className="md:hidden">🔄</span>
@@ -403,7 +495,7 @@ export default function BoardWrapper() {
                                     navigator.clipboard.writeText(window.location.href);
                                     showToast('Link copied to clipboard!');
                                 }}
-                                className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-xs md:text-sm font-medium rounded-md md:rounded-lg transition-all shadow-md hover:shadow-lg hover:shadow-emerald-500/50 border border-emerald-500/30 transform hover:scale-105"
+                                className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-xs md:text-sm font-medium rounded-sm md:rounded-lg transition-all shadow-md hover:shadow-lg hover:shadow-emerald-500/50 border border-emerald-500/30 transform hover:scale-105 flex-shrink-0"
                             >
                                 <span className="hidden md:inline">📋 Copy Link</span>
                                 <span className="md:hidden">📋</span>
@@ -411,7 +503,7 @@ export default function BoardWrapper() {
                         )}
                         <button 
                             onClick={() => setShowAbout(true)}
-                            className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white text-xs md:text-sm font-medium rounded-md md:rounded-lg transition-all shadow-md hover:shadow-lg border border-slate-600/50 transform hover:scale-105"
+                            className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white text-xs md:text-sm font-medium rounded-sm md:rounded-lg transition-all shadow-md hover:shadow-lg border border-slate-600/50 transform hover:scale-105 flex-shrink-0"
                         >
                             <span className="hidden md:inline">ℹ️ About</span>
                             <span className="md:hidden">ℹ️</span>
@@ -420,11 +512,12 @@ export default function BoardWrapper() {
                 </div>
             </div>
 
-            <div className="p-2 md:p-4 flex flex-col lg:flex-row gap-2 md:gap-4 items-start justify-center w-full mt-4">
-            {/* LEFT PANEL */}
-            <div className="flex flex-col w-full lg:w-64 gap-2 md:gap-4 order-3 lg:order-1">
+            <div className="flex-1 overflow-y-auto p-1 md:p-4 flex flex-col lg:flex-row gap-1 md:gap-4 items-start justify-center w-full">
+                {/* LEFT PANEL */}
+                <div className="flex flex-col w-full lg:w-64 gap-2 md:gap-4 order-3 lg:order-1 px-2 md:px-0">
                 <Controls
                     onSelectMode={handleSelectMode}
+                    onShowRules={() => setShowRules(true)}
                 />
                 <GameInfo
                     mode={mode}
@@ -447,60 +540,66 @@ export default function BoardWrapper() {
 
             {/* CENTER PANEL: BOARD */}
             <div className="flex flex-col lg:flex-row gap-2 md:gap-4 order-1 lg:order-2">
-                {/* Top clock - mobile only */}
-                <div className="lg:hidden">
-                    <ClockView 
-                        timeMs={getHistoricalClockTime('opponent')} 
-                        label={online?.isSpectator ? "Black" : (chess.playerColor === "w" ? "Black" : "White")} 
-                    />
-                </div>
+                {/* Top clock - mobile only (only show if timed game) */}
+                {(mode === "friend" || isBotGameTimed) && (
+                    <div className="lg:hidden w-full">
+                        <ClockView 
+                            timeMs={getHistoricalClockTime('opponent')} 
+                            label={online?.isSpectator ? "Black" : (chess.playerColor === "w" ? "Black" : "White")} 
+                        />
+                    </div>
+                )}
                 
-                <div className="flex-none max-w-[560px] w-full">
+                <div className="w-full max-w-[min(100vw-8px,560px)] lg:max-w-[560px] mx-auto lg:max-h-[560px]">
                     <Board
                         chess={chess}
                         mode={mode}
                         opponent={mode === "friend" ? online : marseillais}
                         clock={clock}
                         gameStarted={gameStarted}
+                        incrementSeconds={isBotGameTimed ? botIncrementSeconds : 0}
                         {...boardProps}
                     />
                 </div>
                 
-                {/* Bottom clock - mobile only */}
-                <div className="lg:hidden">
-                    <ClockView 
-                        timeMs={getHistoricalClockTime('player')} 
-                        label={online?.isSpectator ? "White" : (chess.playerColor === "w" ? "White" : "Black")} 
-                    />
-                </div>
-                
-                {/* CLOCKS + HISTORY - Right side of board - desktop only */}
-                <div className="hidden lg:flex flex-col w-56 h-[560px]">
-                    {/* Opponent/Top clock */}
-                    <ClockView 
-                        timeMs={getHistoricalClockTime('opponent')} 
-                        label={online?.isSpectator ? "Black" : (chess.playerColor === "w" ? "Black" : "White")} 
-                    />
-                    
-                    {/* Move History in the middle - fixed height */}
-                    <div className="my-2 h-[400px]">
-                        <MoveHistory
-                            moves={chess.moveHistory}
-                            viewIndex={viewIndex}
-                            onNavigate={setViewIndex}
+                {/* Bottom clock - mobile only (only show if timed game) */}
+                {(mode === "friend" || isBotGameTimed) && (
+                    <div className="lg:hidden w-full">
+                        <ClockView 
+                            timeMs={getHistoricalClockTime('player')} 
+                            label={online?.isSpectator ? "White" : (chess.playerColor === "w" ? "White" : "Black")} 
                         />
                     </div>
-                    
-                    {/* Player/Bottom clock */}
-                    <ClockView 
-                        timeMs={getHistoricalClockTime('player')} 
-                        label={online?.isSpectator ? "White" : (chess.playerColor === "w" ? "White" : "Black")} 
-                    />
-                </div>
-            </div>
+                )}
+                
+                {/* CLOCKS + HISTORY - Right side of board - desktop only (only show if timed game) */}
+                {(mode === "friend" || isBotGameTimed) && (
+                    <div className="hidden lg:flex flex-col w-56 h-[560px]">
+                        {/* Opponent/Top clock */}
+                        <ClockView 
+                            timeMs={getHistoricalClockTime('opponent')} 
+                            label={online?.isSpectator ? "Black" : (chess.playerColor === "w" ? "Black" : "White")} 
+                        />
+                        
+                        {/* Move History in the middle - fixed height */}
+                        <div className="my-2 h-[400px]">
+                            <MoveHistory
+                                moves={chess.moveHistory}
+                                viewIndex={viewIndex}
+                                onNavigate={setViewIndex}
+                            />
+                        </div>
+                        
+                        {/* Player/Bottom clock */}
+                        <ClockView 
+                            timeMs={getHistoricalClockTime('player')} 
+                            label={online?.isSpectator ? "White" : (chess.playerColor === "w" ? "White" : "Black")} 
+                        />
+                    </div>
+                )}
 
             {/* RIGHT PANEL: HISTORY (for mobile only) */}
-            <div className="flex flex-col w-full lg:hidden gap-2 md:gap-4 order-2 lg:order-3">
+            <div className="flex flex-col w-full lg:hidden gap-2 md:gap-4 order-2 lg:order-3 px-2 md:px-0">
                 <MoveHistory
                     moves={chess.moveHistory}
                     viewIndex={viewIndex}
@@ -518,7 +617,7 @@ export default function BoardWrapper() {
                     <h3 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Game Over</h3>
                     <p className="text-lg text-slate-200 font-medium">
                         {gameOverInfo.winner
-                            ? `${gameOverInfo.winner.charAt(0).toUpperCase() + gameOverInfo.winner.slice(1)} wins by ${gameOverInfo.reason}`
+                            ? `${gameOverInfo.winner.charAt(0).toUpperCase() + gameOverInfo.winner.slice(1)} won by ${gameOverInfo.reason}`
                             : (gameOverInfo.reason === 'draw' ? 'Draw' : `Draw by ${gameOverInfo.reason}`)}
                     </p>
                     <button
@@ -530,6 +629,7 @@ export default function BoardWrapper() {
                 </div>
             </div>
         )}
+        </div>
         </div>
     );
 }

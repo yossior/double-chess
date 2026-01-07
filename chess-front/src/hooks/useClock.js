@@ -89,10 +89,21 @@ export default function useClock(initialTime = 300) {
     }, [activePlayer, isActive]);
 
     const start = useCallback((side = "w") => {
-        if (side !== "w" && side !== "b" && side !== null) return;
+        // Normalize 'white'/'black' to 'w'/'b'
+        let normalizedSide = side;
+        if (side === "white") normalizedSide = "w";
+        else if (side === "black") normalizedSide = "b";
+        
+        if (normalizedSide !== "w" && normalizedSide !== "b" && normalizedSide !== null) return;
+        
+        // Only restart if the active player actually changed
+        if (clockStateRef.current.activePlayer === normalizedSide && clockStateRef.current.isActive) {
+            return;
+        }
+        
         clockStateRef.current.lastUpdateTime = Date.now();
         setIsActive(true);
-        setActivePlayer(side);
+        setActivePlayer(normalizedSide);
     }, []);
 
     const pause = useCallback(() => {
@@ -104,11 +115,11 @@ export default function useClock(initialTime = 300) {
         clockStateRef.current.isActive = false;
     }, []);
 
-    const reset = useCallback(() => {
+    const reset = useCallback(({ initialSeconds = initialTime } = {}) => {
         if (animationFrameRef.current) {
             cancelAnimationFrame(animationFrameRef.current);
         }
-        const resetTime = initialTime * 1000;
+        const resetTime = initialSeconds * 1000;
         setWhiteMs(resetTime);
         setBlackMs(resetTime);
         clockStateRef.current.whiteMs = resetTime;
@@ -141,6 +152,21 @@ export default function useClock(initialTime = 300) {
         }
     }, []);
 
+    // Add increment to a player's clock (used when turn completes)
+    const applyIncrement = useCallback((side, incrementSeconds = 2) => {
+        const incrementMs = incrementSeconds * 1000;
+        console.log('[useClock] applyIncrement', { side, incrementSeconds });
+        if (side === "white") {
+            clockStateRef.current.whiteMs = Math.max(0, clockStateRef.current.whiteMs + incrementMs);
+            setWhiteMs(clockStateRef.current.whiteMs);
+            console.log('[useClock] whiteMs now', clockStateRef.current.whiteMs);
+        } else if (side === "black") {
+            clockStateRef.current.blackMs = Math.max(0, clockStateRef.current.blackMs + incrementMs);
+            setBlackMs(clockStateRef.current.blackMs);
+            console.log('[useClock] blackMs now', clockStateRef.current.blackMs);
+        }
+    }, []);
+
     return {
         isActive,
         whiteMs,
@@ -152,6 +178,7 @@ export default function useClock(initialTime = 300) {
         status,
         isTimeout,
         reset,
-        syncFromServer
+        syncFromServer,
+        applyIncrement
     };
 }

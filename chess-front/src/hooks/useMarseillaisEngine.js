@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
 const LEVELS = {
-  1: { depth: 2, description: 'Easy' },
-  2: { depth: 3, description: 'Medium' },
-  3: { depth: 5, description: 'Hard' },
+  1: { depth: 1, description: 'Easy' },
+  2: { depth: 2, description: 'Medium' },
+  3: { depth: 4, description: 'Hard' },
 };
 
 export function useMarseillaisEngine(
@@ -16,7 +16,8 @@ export function useMarseillaisEngine(
   skillLevel,
   clock,
   playerColor = 'w',
-  isUnbalanced = true
+  isUnbalanced = true,
+  incrementSeconds = 0
 ) {
   const workerRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
@@ -203,6 +204,18 @@ export function useMarseillaisEngine(
         }
 
         setIsPlayingDoubleMove(false);
+        
+        // Apply increment to the engine's clock after completing turn
+        // Check if this was the last move of engine's turn (current movesInTurn should be 0)
+        const lastMove = chessController.chessGame.history({ verbose: true }).slice(-1)[0];
+        const currentMovesInTurn = chessController.movesInTurn;
+        
+        if (incrementSeconds > 0 && currentMovesInTurn === 0) {
+          const engineColor = playerColor === 'w' ? 'black' : 'white';
+          console.log('[useMarseillaisEngine] Applying increment to engine', engineColor, { currentMovesInTurn });
+          clock?.applyIncrement?.(engineColor, incrementSeconds);
+        }
+        
         setTimeout(() => {
           setIsRequestInFlight(false);
           requestInFlightRef.current = false;
@@ -219,14 +232,13 @@ export function useMarseillaisEngine(
     });
   }, [chessGame, chessController, skillLevel, setChessPosition, setTurn, playerColor]);
 
-  return {
+  return useMemo(() => ({
     workerRef,
     isReady,
-    chessGame,
     makeEngineMove,
     isPlayingDoubleMove,
     isRequestInFlight,
-  };
+  }), [isReady, makeEngineMove, isPlayingDoubleMove, isRequestInFlight]);
 }
 
 export default useMarseillaisEngine;

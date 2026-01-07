@@ -28,8 +28,8 @@ function registerSocketHandlers(io, socket) {
     handleFindGame(io, socket, userId);
   });
 
-  socket.on("joinGame", ({ gameId, userId, timeMinutes, incrementSeconds, playerColor } = {}) => {
-    handleJoinGame(io, socket, gameId, userId, timeMinutes, incrementSeconds, playerColor);
+  socket.on("joinGame", ({ gameId, userId, timeMinutes, incrementSeconds, playerColor, isUnbalanced, sessionId } = {}) => {
+    handleJoinGame(io, socket, gameId, userId, timeMinutes, incrementSeconds, playerColor, isUnbalanced, sessionId);
   });
 
   // Game moves
@@ -101,14 +101,46 @@ function handleFindGame(io, socket, userId = null) {
 /**
  * Handle joining a specific game
  */
-function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = null, incrementSeconds = null, playerColor = null) {
+async function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = null, incrementSeconds = null, playerColor = null, isUnbalanced = true, sessionId = null) {
   const effectiveUserId = userId ?? socket.data.userId ?? socket.handshake.auth?.userId ?? null;
   if (effectiveUserId) socket.data.userId = effectiveUserId;
-
-  const result = gameService.joinGame(socket.id, effectiveUserId, gameId, timeMinutes, incrementSeconds, playerColor);
   
+  // For guest users, use sessionId from client or socket.handshake.auth
+  const effectiveSessionId = sessionId ?? socket.handshake.auth?.sessionId ?? socket.data.sessionId;
+  if (effectiveSessionId) {
+    socket.data.sessionId = effectiveSessionId;
+  }
+
+  let result = gameService.joinGame(socket.id, effectiveUserId, gameId, timeMinutes, incrementSeconds, playerColor, isUnbalanced, effectiveSessionId);
+  
+  // If game not found in memory, try to load from database
   if (!result || !result.game) {
-    socket.emit("error", "Cannot join game");
+    try {
+      const dbGame = await gameService.getCompletedGameFromDb(gameId);
+      if (dbGame) {
+        // Game found in DB - send as completed spectator view
+        socket.join(gameId);
+        socket.emit("spectatorJoined", {
+          gameId: gameId,
+          fen: dbGame.fen,
+          turn: dbGame.fen.split(' ')[1],
+          whiteMs: dbGame.whiteMs || 0,
+          blackMs: dbGame.blackMs || 0,
+          serverTime: Date.now(),
+          history: dbGame.moves.map((san, idx) => ({ san, fen: null })), // History without FENs
+          isCompleted: true,
+          movesInTurn: 0,
+          gameResult: dbGame.result,
+          winner: dbGame.winner,
+        });
+        console.log(`[Game] ${socket.id} viewing completed game ${gameId} from DB`);
+        return;
+      }
+    } catch (err) {
+      console.error(`[Game] Error loading game ${gameId} from DB:`, err);
+    }
+    
+    socket.emit("error", "Game not found");
     return;
   }
 
@@ -131,6 +163,7 @@ function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = null, i
       serverTime: Date.now(),
       history: game.historyMoves,
       movesInTurn: game.movesInTurn,
+      isUnbalanced: game.isUnbalanced,
     });
     console.log(`[Game] ${socket.id} reconnected to game ${gameId} as ${player.color}`);
     return;
@@ -151,6 +184,7 @@ function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = null, i
       movesInTurn: game.movesInTurn,
       gameResult: game.gameResult,
       winner: game.winner,
+      isUnbalanced: game.isUnbalanced,
     });
     console.log(`[Game] ${socket.id} joined game ${gameId} as spectator`);
     return;
@@ -183,13 +217,15 @@ function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = null, i
   if (white?.socketId) {
     io.to(white.socketId).emit("gameStarted", {
       ...gameStartData,
-      color: "w",
+      isUnbalanced: game.isUnbalanced,
     });
   }
 
   if (black?.socketId) {
     io.to(black.socketId).emit("gameStarted", {
       ...gameStartData,
+      color: "b",
+      isUnbalanced: game.isUnbalancedrtData,
       color: "b",
     });
   }

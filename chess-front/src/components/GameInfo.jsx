@@ -89,7 +89,7 @@ export default function GameInfo({ mode, gameStatus, isMyTurn, turn, movesInTurn
         }`}>
           {winnerInfo
             ? (winnerInfo.winner 
-                ? `🏆 ${winnerInfo.winner.charAt(0).toUpperCase() + winnerInfo.winner.slice(1)} wins by ${winnerInfo.reason}` 
+                ? `🏆 ${winnerInfo.winner.charAt(0).toUpperCase() + winnerInfo.winner.slice(1)} won by ${winnerInfo.reason}` 
                 : (winnerInfo.reason === 'draw' ? '🤝 Draw' : `🤝 Draw by ${winnerInfo.reason}`))
             : gameStatus || '♟️ Game in progress'}
         </div>

@@ -5,7 +5,7 @@ import { Chess } from "chess.js";
  * Minimal chess controller that exposes a single object (chess).
  * Expand this as needed (move validation UI helpers, PGN export, history, etc).
  */
-export function useChessController(clock, { enableClock = true, isUnbalanced = true } = {}) {
+export function useChessController(clock, { enableClock = true, isUnbalanced = true, gameMode = "local" } = {}) {
   const chessGameRef = useRef(new Chess());
   const chessGame = chessGameRef.current;
   const [initialFen, setInitialFen] = useState(chessGame.fen());
@@ -60,6 +60,7 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
   function applyLocalMove({ from, to, promotion }, { recordHistory = true } = {}) {
     if (chessGame.isGameOver() || clock.status !== "" || resigned) return null;
     try {
+      const prevMovesInTurn = movesInTurnRef.current;
       const move = chessGame.move({ from, to, promotion });
       if (!move) return null;
 
@@ -124,6 +125,10 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
       // IMPORTANT: Use the turn from the game instance, which might have been flipped back
       setTurn(chessGame.turn());
       if (enableClock) setClockStarted(true);
+
+      // Attach moves-in-turn metadata to the move object so callers can act on exact transition
+      move._movesInTurn = { prev: prevMovesInTurn, current: movesInTurnRef.current };
+
       return move;
     } catch (e) {
       console.warn("invalid move", e);
@@ -131,7 +136,7 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
     }
   }
 
-  function resetGame() {
+  function resetGame({ keepClock = false } = {}) {
     chessGame.reset();
     const startFen = chessGame.fen();
     setInitialFen(startFen);
@@ -146,7 +151,7 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
     setClockStarted(false);
     setMovesInTurn(0);
     setResigned(null);
-    if (clock?.reset) clock.reset();
+    if (!keepClock && clock?.reset) clock.reset();
 
     console.log("Game reset");
   }

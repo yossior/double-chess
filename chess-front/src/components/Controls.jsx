@@ -3,7 +3,8 @@
  * Settings are now in modals (PlayBot, PlayFriend)
  */
 export default function Controls({ 
-  onSelectMode
+  onSelectMode,
+  onShowRules
 }) {
 
   return (
@@ -21,6 +22,17 @@ export default function Controls({
           className="w-full p-4 rounded-xl font-semibold text-base transition-all bg-gradient-to-r from-purple-600 to-purple-700 text-white hover:from-purple-700 hover:to-purple-800 shadow-lg hover:shadow-xl hover:shadow-purple-500/50 transform hover:scale-[1.02] active:scale-[0.98] border border-purple-500/20"
         >
           👥 Play a Friend
+        </button>
+      </div>
+
+      {/* Utility Buttons */}
+      <div className="w-full flex gap-2 mt-4">
+        <button
+          onClick={() => onShowRules?.()}
+          className="flex-1 p-3 rounded-lg font-semibold text-sm transition-all bg-gradient-to-r from-green-600 to-green-700 text-white hover:from-green-700 hover:to-green-800 shadow-lg hover:shadow-xl hover:shadow-green-500/50 transform hover:scale-[1.02] active:scale-[0.98] border border-green-500/20"
+          title="View game rules"
+        >
+          📖 Rules
         </button>
       </div>
     </div>

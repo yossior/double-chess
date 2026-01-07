@@ -59,44 +59,54 @@ class GameService {
   /**
    * Join an existing game (or create if doesn't exist for friend mode)
    */
-  joinGame(socketId, userId = null, gameId, timeMinutes = null, incrementSeconds = null, playerColor = null) {
+  joinGame(socketId, userId = null, gameId, timeMinutes = null, incrementSeconds = null, playerColor = null, isUnbalanced = true, sessionId = null) {
     let game = this.games.get(gameId);
     
     // If game doesn't exist, create it (first player joining via link)
     if (!game) {
       // Use provided color or default to white
       const creatorColor = playerColor || 'w';
-      game = this.createGameWithId(gameId, socketId, userId, true, timeMinutes, incrementSeconds, creatorColor);
+      game = this.createGameWithId(gameId, socketId, userId, isUnbalanced, timeMinutes, incrementSeconds, creatorColor);
+      // Store sessionId for guest reconnection
+      if (sessionId && game.players[0]) {
+        game.players[0].sessionId = sessionId;
+      }
       return { game, role: 'player' };
     }
     
-    // Check if this socket or user is already a player in this game (reconnection)
+    // Check if this socket, user, or session is already a player in this game (reconnection)
     const existingPlayer = game.players.find(p => 
-      p.socketId === socketId || (userId && p.userId && p.userId === userId)
+      p.socketId === socketId || 
+      (userId && p.userId && p.userId === userId) ||
+      (sessionId && p.sessionId && p.sessionId === sessionId)
     );
     if (existingPlayer) {
       // Update socket ID for reconnection
       existingPlayer.socketId = socketId;
-      console.log(`[Game] Player reconnected to game ${gameId} as ${existingPlayer.color}`);
+      // Update sessionId if provided (for guest users)
+      if (sessionId) {
+        existingPlayer.sessionId = sessionId;
+      }
+      console.log(`[Game] Player reconnected to game ${gameId} as ${existingPlayer.color} (userId: ${userId}, sessionId: ${sessionId})`);
       return { game, role: 'player', reconnected: true };
     }
     
     // If game is completed, return as spectator
     if (game.isCompleted) {
-      game.spectators.push({ socketId, userId });
+      game.spectators.push({ socketId, userId, sessionId });
       return { game, role: 'spectator' };
     }
     
     // If game already has 2 players, join as spectator
     if (game.players.length >= 2) {
-      game.spectators.push({ socketId, userId });
+      game.spectators.push({ socketId, userId, sessionId });
       return { game, role: 'spectator' };
     }
 
     // Join as second player - assign opposite color of first player
     const firstPlayerColor = game.players[0]?.color || 'w';
     const secondPlayerColor = firstPlayerColor === 'w' ? 'b' : 'w';
-    game.players.push({ socketId, userId, color: secondPlayerColor });
+    game.players.push({ socketId, userId, sessionId, color: secondPlayerColor });
     game.startedAt = Date.now();
     // Don't set lastMoveTime here - it will be set after the first move
     
@@ -192,13 +202,23 @@ class GameService {
     const now = Date.now();
     const elapsed = game.lastMoveTime ? (now - game.lastMoveTime) : 0;
 
-    // Update clock: subtract elapsed time from moving player, then add increment
-    // Use game.incrementMs if set, otherwise use default
-    const incrementMs = game.incrementMs ?? CLOCK.INCREMENT_MS;
+    // Update clock: subtract elapsed time from moving player
     if (player.color === "w") {
-      game.whiteMs = Math.max(0, game.whiteMs - elapsed) + incrementMs;
+      game.whiteMs = Math.max(0, game.whiteMs - elapsed);
     } else {
-      game.blackMs = Math.max(0, game.blackMs - elapsed) + incrementMs;
+      game.blackMs = Math.max(0, game.blackMs - elapsed);
+    }
+
+    // Apply increment ONLY when the turn switches to the other player
+    // This means the current player has completed their turn (either 1 or 2 moves)
+    const shouldSwitchTurn = game.movesInTurn === 0;
+    if (shouldSwitchTurn) {
+      const incrementMs = game.incrementMs ?? CLOCK.INCREMENT_MS;
+      if (player.color === "w") {
+        game.whiteMs = Math.max(0, game.whiteMs + incrementMs);
+      } else {
+        game.blackMs = Math.max(0, game.blackMs + incrementMs);
+      }
     }
 
     // Update last move time for next move
@@ -291,11 +311,24 @@ class GameService {
    */
   async getCompletedGameFromDb(gameId) {
     try {
-      const game = await Game.findOne({ _id: gameId })
+      // Try both _id and custom gameId field
+      let game = await Game.findOne({ _id: gameId })
         .populate('white', 'username')
         .populate('black', 'username');
+      
+      if (!game) {
+        // Also try finding by custom game ID if stored
+        game = await Game.findOne({ gameId: gameId })
+          .populate('white', 'username')
+          .populate('black', 'username');
+      }
+      
       return game;
     } catch (error) {
+      // If gameId is not a valid MongoDB ObjectId, just return null
+      if (error.name === 'CastError') {
+        return null;
+      }
       console.error(`[DB] Failed to fetch game ${gameId}:`, error);
       return null;
     }

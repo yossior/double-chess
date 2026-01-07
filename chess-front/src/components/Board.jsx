@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Chessboard, chessColumnToColumnIndex, fenStringToPositionObject } from "react-chessboard";
 import PromotionModal from "./PromotionModal";
 import usePremoves from "../hooks/usePremoves";
 
-export default function Board({ chess, mode = "local", opponent, clock, viewIndex, onNavigate, orientationOverride, gameStarted = false }) {
+export default function Board({ chess, mode = "local", opponent, clock, viewIndex, onNavigate, orientationOverride, gameStarted = false, incrementSeconds = 2 }) {
   const [showAnimations, setShowAnimations] = useState(true);
   const isFriend = mode === "friend";
   const isSpectator = isFriend && opponent?.isSpectator;
@@ -85,35 +85,86 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
 
   // Automatic Engine Trigger for AI Move
   useEffect(() => {
-    // Determine engine turn using authoritative game instance to avoid stale-state races
+    if (!gameStarted || mode !== "local" || !opponent?.makeEngineMove) return;
+    
     const currentTurn = chess.chessGame.turn();
     const isEngineTurn = currentTurn !== chess.playerColor;
-
-    // Suppression flag to prevent immediate re-trigger after engine finishes
-    // (keeps engine from taking multiple turns due to async state updates)
+    const isGameOver = chess.chessGame.isGameOver();
     const isPlayingDoubleMove = opponent?.isPlayingDoubleMove;
     const isInFlight = opponent?.isRequestInFlight;
-
-    if (gameStarted && mode === "local" && opponent && isEngineTurn && !chess.chessGame.isGameOver() && viewIndex === null && !isPlayingDoubleMove && !isInFlight) {
-      // Log scheduling decision for debugging
-      console.log('[Board] scheduling engine move', { movesInTurn: chess.movesInTurn, turn: chess.chessGame.turn(), opponentPlaying: opponent?.isPlayingDoubleMove, opponentInFlight: opponent?.isRequestInFlight });
-      // Use shorter delay for second move of turn (movesInTurn === 1)
+    
+    if (isEngineTurn && !isGameOver && viewIndex === null && !isPlayingDoubleMove && !isInFlight) {
+      console.log('[Board] Engine should move', { 
+        turn: currentTurn, 
+        playerColor: chess.playerColor, 
+        movesInTurn: chess.movesInTurn,
+        isPlayingDoubleMove,
+        isInFlight 
+      });
+      
       const delay = chess.movesInTurn === 1 ? 300 : 800;
       const timer = setTimeout(() => {
-        console.log('[Board] triggering opponent.makeEngineMove', { delay, movesInTurn: chess.movesInTurn });
-        opponent?.makeEngineMove?.();
+        // Double-check conditions haven't changed
+        if (chess.chessGame.turn() === currentTurn && !chess.chessGame.isGameOver()) {
+          console.log('[Board] Executing engine move');
+          opponent.makeEngineMove();
+        }
       }, delay);
-
+      
       return () => clearTimeout(timer);
     }
-  }, [gameStarted, mode, chess.chessGame, chess.movesInTurn, opponent, viewIndex, opponent?.isPlayingDoubleMove, opponent?.isRequestInFlight]);
+  }, [chess.chessPosition, chess.movesInTurn, gameStarted, mode, viewIndex, opponent?.isPlayingDoubleMove, opponent?.isRequestInFlight]);
 
   function handleMove({ from, to, promotion }) {
     if (chess.chessGame.isGameOver() || clock.isTimeout()) return;
     if (viewIndex !== null) onNavigate(null); // Snap to live
 
+    const oldTurn = chess.chessGame.turn();
+
     const move = chess.applyLocalMove({ from, to, promotion }, { recordHistory: !isFriend });
     if (!move) return;
+
+    // For timed games in local mode, use precise transition info attached to the move
+    // to decide when the turn really ended (avoid relying on state that may not have updated yet)
+    const { prev: prevMovesInTurn = null, current: newMovesInTurn = null } = move._movesInTurn || {};
+
+    // Debug logs to trace increment behavior
+    console.log('[Board] handleMove FULL DEBUG', { 
+      from, to, promotion, 
+      oldTurn, 
+      prevMovesInTurn, 
+      newMovesInTurn,
+      incrementSeconds,
+      isFriend,
+      hasClockObject: !!clock,
+      hasApplyIncrement: !!clock?.applyIncrement,
+      metadata: move._movesInTurn,
+      fullMove: move
+    });
+
+    // Apply increment when the player's turn ended (newMovesInTurn === 0)
+    // This covers: second move of double-move, single move in balanced mode, or check ending turn early
+    const shouldApplyIncrement = !isFriend && clock && incrementSeconds > 0 && newMovesInTurn === 0;
+    console.log('[Board] Increment check', {
+      shouldApplyIncrement,
+      isFriend,
+      hasClock: !!clock,
+      incrementSeconds,
+      newMovesInTurn,
+      condition1: !isFriend,
+      condition2: !!clock,
+      condition3: incrementSeconds > 0,
+      condition4: newMovesInTurn === 0
+    });
+
+    if (shouldApplyIncrement) {
+      const playerWhoJustMoved = oldTurn === 'w' ? 'white' : 'black';
+      console.log('[Board] ✅ Applying increment to player', playerWhoJustMoved, { prevMovesInTurn, newMovesInTurn, incrementSeconds });
+      clock.applyIncrement(playerWhoJustMoved, incrementSeconds);
+      console.log('[Board] Increment applied, clocks now:', { whiteMs: clock.whiteMs, blackMs: clock.blackMs });
+    } else {
+      console.log('[Board] ❌ NOT applying increment');
+    }
 
     if (isFriend) {
       opponent?.sendMoveOnline?.({ from: move.from, to: move.to, promotion: move.promotion });
@@ -211,16 +262,8 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
       return false; 
     }
 
-    // Snap to live
-    if (viewIndex !== null) onNavigate(null);
-
-    const move = chess.applyLocalMove({ from: sourceSquare, to: targetSquare }, { recordHistory: !isFriend });
-
-    if (!move) return false;
-
-    if (isFriend) {
-      opponent?.sendMoveOnline?.(move);
-    }
+    // Use handleMove to ensure increment logic runs
+    handleMove({ from: sourceSquare, to: targetSquare });
     return true;
   }
 

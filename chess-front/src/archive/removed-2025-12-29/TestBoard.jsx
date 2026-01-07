@@ -27,7 +27,7 @@ const SAMPLE_PGN = `[Event "rated bullet game"]
 [Termination "Normal"]
 [Annotator "lichess.org"]
 
-1. d4 e6 { A40 Horwitz Defense } 2. e3 d5 3. f4 Nf6 4. Nf3 b6 5. Bd3 Be7 6. c3 O-O 7. Qe2 a5 8. Nbd2 Ba6 9. c4 c5 10. b3 Nc6 11. Bb2 Nb4 12. Bb1 cxd4 13. Nxd4 dxc4 14. bxc4 Rc8 15. a3 Nc6 16. O-O Bc5 17. N2f3 Nxd4 18. exd4 Bd6 19. Ne5 Qc7 20. Bd3 Nd7 21. Rac1 Be7 22. Rf3 f5 23. Rh3 Nxe5 24. fxe5 g6 25. Rg3 Qd7 26. d5 exd5 27. e6 Qd6 28. Be5 Qxe6 29. cxd5 Rxc1+ 30. Kf2 Bxd3 31. dxe6 Bxe2 32. Kxe2 Rfc8 33. Rb3 R1c2+ 34. Kf3 R8c6 35. g4 Rxe6 36. Rb5 Bc5 37. Bf4 Rf2+ 38. Kg3 fxg4 39. Kxg4 Re4 40. h4 Rfxf4+ 41. Kg5 Rf5+ 42. Kh6 Rh5# { Black wins by checkmate. } 0-1`;
+1. d4 e6 { A40 Horwitz Defense } 2. e3 d5 3. f4 Nf6 4. Nf3 b6 5. Bd3 Be7 6. c3 O-O 7. Qe2 a5 8. Nbd2 Ba6 9. c4 c5 10. b3 Nc6 11. Bb2 Nb4 12. Bb1 cxd4 13. Nxd4 dxc4 14. bxc4 Rc8 15. a3 Nc6 16. O-O Bc5 17. N2f3 Nxd4 18. exd4 Bd6 19. Ne5 Qc7 20. Bd3 Nd7 21. Rac1 Be7 22. Rf3 f5 23. Rh3 Nxe5 24. fxe5 g6 25. Rg3 Qd7 26. d5 exd5 27. e6 Qd6 28. Be5 Qxe6 29. cxd5 Rxc1+ 30. Kf2 Bxd3 31. dxe6 Bxe2 32. Kxe2 Rfc8 33. Rb3 R1c2+ 34. Kf3 R8c6 35. g4 Rxe6 36. Rb5 Bc5 37. Bf4 Rf2+ 38. Kg3 fxg4 39. Kxg4 Re4 40. h4 Rfxf4+ 41. Kg5 Rf5+ 42. Kh6 Rh5# { Black won by checkmate. } 0-1`;
 
 // Utility function to process moves for display
 const processMoves = (history) => {
