@@ -262,7 +262,7 @@ class GameService {
     const secondPlayerColor = firstPlayerColor === 'w' ? 'b' : 'w';
     game.players.push({ socketId, userId, color: secondPlayerColor });
     game.startedAt = Date.now();
-    game.lastMoveTime = Date.now(); // Start the clock for the first player
+    // Don't set lastMoveTime here - wait until the first move is actually made
     
     return { game, role: 'player' };
   }
@@ -315,6 +315,11 @@ class GameService {
     const result = game.chess.move(move);
     if (!result) {
       return { success: false, error: "Illegal move", move };
+    }
+
+    // Initialize lastMoveTime on first move if not already set
+    if (!game.lastMoveTime) {
+      game.lastMoveTime = Date.now();
     }
 
     // Double-move logic
