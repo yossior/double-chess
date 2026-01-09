@@ -8,7 +8,8 @@ require("dotenv").config();
 const { registerSocketHandlers } = require("./handlers/socket.handler");
 const userRoutes = require("./routes/user.route");
 const { errorHandler } = require("./middleware/auth.middleware");
-const { initializeAdminUser } = require("./controllers/user.controller");
+// Admin initialization disabled
+// const { initializeAdminUser } = require("./controllers/user.controller");
 
 // ============================================
 // INITIALIZE EXPRESS & SOCKET.IO
@@ -23,6 +24,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(express.static('public'));
 
 // ============================================
 // ROUTES
@@ -54,7 +56,7 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
     console.log("✅ Connected to MongoDB");
-    initializeAdminUser();
+    // initializeAdminUser();
     startServer();
   })
   .catch((err) => {
