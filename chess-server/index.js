@@ -26,6 +26,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static('public'));
 
+// Serve frontend dist folder
+app.use(express.static('chess-front/dist'));
+
 // ============================================
 // ROUTES
 // ============================================
@@ -34,6 +37,13 @@ app.use("/api/users", userRoutes);
 // Health check
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", timestamp: Date.now() });
+});
+
+// SPA fallback - serve index.html for all non-API routes
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api') && !req.path.startsWith('/socket')) {
+    res.sendFile('chess-front/dist/index.html', { root: '.' });
+  }
 });
 
 // Error handling middleware

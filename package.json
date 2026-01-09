@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev --host --prefix chess-server\" \"npm run dev --prefix chess-front\"",
-    "install:all": "npm install && npm install --prefix chess-server && npm install --prefix chess-front"
+    "install:all": "npm install && npm install --prefix chess-server && npm install --prefix chess-front",
+    "build": "npm run build --prefix chess-front",
+    "start": "npm --prefix chess-server start",
+    "postinstall": "npm install --prefix chess-server && npm install --prefix chess-front"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

@@ -10,6 +10,16 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Opener-Policy': 'same-origin',
     },
+    proxy: {
+      '/api': {
+        target: 'http://localhost:80',
+        changeOrigin: true,
+      },
+      '/socket.io': {
+        target: 'ws://localhost:80',
+        ws: true,
+      },
+    },
   },
   preview: {
     headers: {
