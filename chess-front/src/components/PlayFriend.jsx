@@ -73,7 +73,7 @@ export default function PlayFriend({ onStartGame, onBack, onCopyLink, initialIsU
                   : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 border border-slate-600/30'
               }`}
             >
-              <span>🎲</span><span>Random</span>
+              <span>🎲Random</span>
             </button>
             <button
               onClick={() => setSelectedColor('b')}

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
 const LEVELS = {
-  1: { depth: 1, description: 'Easy' },
-  2: { depth: 2, description: 'Medium' },
-  3: { depth: 4, description: 'Hard' },
+  1: { depth: 2, description: 'Easy' },
+  2: { depth: 4, description: 'Medium' },
+  3: { depth: 6, description: 'Hard' },
 };
 
 export function useMarseillaisEngine(
@@ -195,9 +195,6 @@ export function useMarseillaisEngine(
             });
           }
 
-          setChessPosition(chessGame.fen());
-          setTurn(chessGame.turn());
-
           await new Promise(r =>
             setTimeout(r, i === 0 ? 200 : 300)
           );
@@ -230,7 +227,17 @@ export function useMarseillaisEngine(
       });
       worker.postMessage({ type: 'findBestMove', fen, skillLevel, requestId });
     });
-  }, [chessGame, chessController, skillLevel, setChessPosition, setTurn, playerColor]);
+  }, [
+    chessGame, 
+    chessController, 
+    skillLevel, 
+    setChessPosition, 
+    setTurn, 
+    playerColor, 
+    clock, 
+    incrementSeconds,
+    isUnbalanced
+  ]);
 
   return useMemo(() => ({
     workerRef,

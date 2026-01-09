@@ -76,7 +76,7 @@ export default function GameInfo({ mode, gameStatus, isMyTurn, turn, movesInTurn
         {isUnbalanced && (
           <div className="mt-2 text-center">
             <span className="text-xs font-medium text-indigo-400">
-              Move {movesInTurn !== undefined ? `${movesInTurn + 1}/2` : "1/1"}
+              Move {movesInTurn !== undefined ? `${movesInTurn}/2` : "1/1"}
             </span>
           </div>
         )}

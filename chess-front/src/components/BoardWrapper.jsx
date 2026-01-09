@@ -67,7 +67,21 @@ export default function BoardWrapper() {
     useEffect(() => {
         console.log('[BoardWrapper] Mount effect running');
         
-        // First priority: check if there's an active friend game in progress (for refresh recovery)
+        // First priority: check if there's a game ID in the URL (shared link takes precedence)
+        const pathMatch = window.location.pathname.match(/^\/game\/([a-z0-9]+)$/);
+        const gameIdFromUrl = pathMatch ? pathMatch[1] : null;
+        
+        if (gameIdFromUrl) {
+            // Joining via shared link (URL takes priority over localStorage)
+            console.log('[BoardWrapper] Found game ID in URL:', gameIdFromUrl);
+            setMode('friend');
+            setShowPlayFriend(false);
+            setPendingGameId(gameIdFromUrl);
+            setGameStarted(true);
+            return; // Don't check localStorage
+        }
+
+        // Second priority: check if there's an active friend game in progress (for refresh recovery)
         const activeGame = localStorage.getItem('chess_active_game');
         
         if (activeGame) {
@@ -84,63 +98,51 @@ export default function BoardWrapper() {
                 console.error('Failed to parse active game info', e);
                 localStorage.removeItem('chess_active_game');
             }
-        } else {
-            // Check for /game/ID format (joining via shared link, not an active game)
-            const pathMatch = window.location.pathname.match(/^\/game\/([a-z0-9]+)$/);
-            const gameId = pathMatch ? pathMatch[1] : null;
-            
-            if (gameId) {
-                console.log('[BoardWrapper] Found game ID in URL:', gameId);
-                // Joining via shared link (not resuming active game)
-                setMode('friend');
-                setShowPlayFriend(false);
-                setPendingGameId(gameId);
-                setGameStarted(true);
-            } else {
-                // Check if there's an active bot game in progress (for refresh recovery)
-                const activeBotGame = localStorage.getItem('chess_active_bot_game');
-                console.log('[BoardWrapper] Checking for active bot game:', activeBotGame ? 'Found' : 'Not found');
+            return; // Don't check for bot game
+        }
+
+        // Third priority: check if there's an active bot game in progress (for refresh recovery)
+        const activeBotGame = localStorage.getItem('chess_active_bot_game');
+        console.log('[BoardWrapper] Checking for active bot game:', activeBotGame ? 'Found' : 'Not found');
+        
+        if (activeBotGame) {
+            try {
+                const botGameInfo = JSON.parse(activeBotGame);
+                console.log('[BoardWrapper] Parsed bot game info:', {
+                    skillLevel: botGameInfo.skillLevel,
+                    isUnbalanced: botGameInfo.isUnbalanced,
+                    playerColor: botGameInfo.playerColor,
+                    isTimed: botGameInfo.isTimed,
+                    moveCount: botGameInfo.moveHistory?.length || 0,
+                    fen: botGameInfo.fen
+                });
+                setMode('local');
+                setShowPlayBot(false);
+                setSkillLevel(botGameInfo.skillLevel || 2);
+                setIsUnbalanced(botGameInfo.isUnbalanced !== false); // Default to true
+                setIsBotGameTimed(botGameInfo.isTimed || false);
+                setBotTimeMinutes(botGameInfo.timeMinutes || 3);
+                setBotIncrementSeconds(botGameInfo.incrementSeconds || 2);
+                setPlayerColor(botGameInfo.playerColor || 'w');
                 
-                if (activeBotGame) {
-                    try {
-                        const botGameInfo = JSON.parse(activeBotGame);
-                        console.log('[BoardWrapper] Parsed bot game info:', {
-                            skillLevel: botGameInfo.skillLevel,
-                            isUnbalanced: botGameInfo.isUnbalanced,
-                            playerColor: botGameInfo.playerColor,
-                            isTimed: botGameInfo.isTimed,
-                            moveCount: botGameInfo.moveHistory?.length || 0,
-                            fen: botGameInfo.fen
-                        });
-                        setMode('local');
-                        setShowPlayBot(false);
-                        setSkillLevel(botGameInfo.skillLevel || 2);
-                        setIsUnbalanced(botGameInfo.isUnbalanced !== false); // Default to true
-                        setIsBotGameTimed(botGameInfo.isTimed || false);
-                        setBotTimeMinutes(botGameInfo.timeMinutes || 3);
-                        setBotIncrementSeconds(botGameInfo.incrementSeconds || 2);
-                        setPlayerColor(botGameInfo.playerColor || 'w');
-                        
-                        // Store these for restoration after chess is initialized
-                        setPendingGameSettings({
-                            isBotGame: true,
-                            fen: botGameInfo.fen,
-                            moveHistory: botGameInfo.moveHistory || [],
-                            movesInTurn: botGameInfo.movesInTurn || 0,
-                            whiteMs: botGameInfo.whiteMs,
-                            blackMs: botGameInfo.blackMs,
-                        });
-                        
-                        setGameStarted(true);
-                        console.log('[BoardWrapper] Bot game settings prepared for restoration');
-                    } catch (e) {
-                        console.error('Failed to parse active bot game info', e);
-                        localStorage.removeItem('chess_active_bot_game');
-                    }
-                } else {
-                    console.log('[BoardWrapper] No active game to restore');
-                }
+                // Store these for restoration after chess is initialized
+                setPendingGameSettings({
+                    isBotGame: true,
+                    fen: botGameInfo.fen,
+                    moveHistory: botGameInfo.moveHistory || [],
+                    movesInTurn: botGameInfo.movesInTurn || 0,
+                    whiteMs: botGameInfo.whiteMs,
+                    blackMs: botGameInfo.blackMs,
+                });
+                
+                setGameStarted(true);
+                console.log('[BoardWrapper] Bot game settings prepared for restoration');
+            } catch (e) {
+                console.error('Failed to parse active bot game info', e);
+                localStorage.removeItem('chess_active_bot_game');
             }
+        } else {
+            console.log('[BoardWrapper] No active game to restore');
         }
     }, []);
 
@@ -248,7 +250,7 @@ export default function BoardWrapper() {
             }
             setPendingGameSettings(null);
         }
-    }, [pendingGameId, pendingGameSettings, online?.isConnected, online, user?.id, chess, isBotGameTimed, clock, loading]);
+    }, [pendingGameId, pendingGameSettings, online.isConnected, online.joinSpecificGame, user?.id, chess.chessGame, chess.setChessPosition, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, chess.setMovesInTurn, isBotGameTimed, clock.syncFromServer, loading]);
 
     // Clear pendingGameId and reset join tracking when the game response is received
     useEffect(() => {
@@ -283,26 +285,31 @@ export default function BoardWrapper() {
 
     // Trigger engine move when it should play first (engine is White, player is Black)
     useEffect(() => {
-        if (mode !== "local" || !gameStarted) return;
+        if (mode !== "local") return;
         if (playerColor !== 'b') return; // Only when player is Black
         if (chess.moveHistory.length > 0) return; // Only at game start
         if (!marseillais?.isReady) return;
         
         // Check if it's actually the engine's turn (white's turn when player is black)
         if (chess.chessGame.turn() === 'w') {
+            console.log('[BoardWrapper] Triggering initial engine move (Player is Black)');
             const timer = setTimeout(() => {
                 if (marseillais?.makeEngineMove) {
                     marseillais.makeEngineMove();
                 }
-            }, 100);
+            }, 300);
             return () => clearTimeout(timer);
         }
-    }, [mode, gameStarted, playerColor, chess.moveHistory.length, marseillais?.isReady, chess.chessGame]);
+    }, [mode, playerColor, chess.moveHistory.length, marseillais?.isReady, chess.chessGame]);
 
     // Auto-reset to "Live" when a real move happens
     useEffect(() => {
         setViewIndex(null);
     }, [chess.chessPosition]);
+
+    // Determine if a friend game is actively in progress (disable mode buttons)
+    // Only disable during online friend games, not during bot games
+    const isGameActive = (mode === "friend" && gameStarted && !gameOverInfo);
 
     // --- NEW: Keyboard Navigation Logic ---
     // In BoardWrapper.jsx
@@ -389,15 +396,22 @@ export default function BoardWrapper() {
         
         if (settings.isTimed) {
             clock.reset({ initialSeconds: (settings.timeMinutes || 3) * 60 });
-            // Clock will start automatically after first move (via useChessController)
         }
         
-        // Reset the game with new settings (preserve clock if timed)
+        // Reset the game with new settings
         chess.resetGame({ keepClock: settings.isTimed });
         
+        // COLOR NORMALIZATION: Use 'w'/'b' internally for all logic
+        const shortColor = settings.color === 'white' || settings.color === 'w' ? 'w' : 'b';
+        
         // Set player color AFTER resetGame (which resets it to 'w')
-        setPlayerColor(settings.color);
-        chess.setPlayerColor(settings.color);
+        setPlayerColor(shortColor);
+        chess.setPlayerColor(shortColor);
+        
+        // Start the clock if the engine (White) moves first
+        if (settings.isTimed && shortColor === 'b') {
+            clock.start('w');
+        }
     }
 
     function handleStartFriendGame(settings) {
@@ -576,6 +590,11 @@ export default function BoardWrapper() {
 
     // Helper to get clock times during history navigation
     const getHistoricalClockTime = (player) => {
+        // Apply flip if requested
+        const effectivePlayer = flipBoard 
+            ? (player === 'player' ? 'opponent' : 'player') 
+            : player;
+
         // If viewing history and move has timing info, show clock at that move
         if (viewIndex !== null && viewIndex >= 0) {
             const move = chess.moveHistory[viewIndex];
@@ -583,16 +602,36 @@ export default function BoardWrapper() {
                 const whiteAtMove = move.whiteMs;
                 const blackAtMove = move.blackMs;
                 if (whiteAtMove !== undefined && blackAtMove !== undefined) {
-                    return player === 'player'
+                    return effectivePlayer === 'player'
                         ? (online?.isSpectator ? whiteAtMove : (chess.playerColor === "w" ? whiteAtMove : blackAtMove))
                         : (online?.isSpectator ? blackAtMove : (chess.playerColor === "w" ? blackAtMove : whiteAtMove));
                 }
             }
         }
         // Show live time
-        return player === 'player' 
+        return effectivePlayer === 'player' 
             ? (online?.isSpectator ? clock.whiteMs : (chess.playerColor === "w" ? clock.whiteMs : clock.blackMs))
             : (online?.isSpectator ? clock.blackMs : (chess.playerColor === "w" ? clock.blackMs : clock.whiteMs));
+    };
+
+    // Helper for clock labels that account for flip
+    const getClockLabel = (position) => {
+        const isActuallyTop = position === 'top';
+        const showOpponent = flipBoard ? !isActuallyTop : isActuallyTop;
+
+        if (online?.isSpectator) {
+            if (showOpponent) {
+                return chess.playerColor === "w" ? (online?.opponentNames?.black || "Black") : (online?.opponentNames?.white || "White");
+            } else {
+                return chess.playerColor === "w" ? (online?.opponentNames?.white || "White") : (online?.opponentNames?.black || "Black");
+            }
+        }
+
+        if (showOpponent) {
+            return chess.playerColor === "w" ? (online?.opponentNames?.black || "Black") : (online?.opponentNames?.white || "White");
+        } else {
+            return chess.playerColor === "w" ? (online?.opponentNames?.white || "White") : (online?.opponentNames?.black || "Black");
+        }
     };
 
     return (
@@ -635,37 +674,29 @@ export default function BoardWrapper() {
 
             {/* About Modal Overlay */}
             {showAbout && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={() => setShowAbout(false)}>
-                    <div className="my-8" onClick={(e) => e.stopPropagation()}>
-                        <button 
-                            onClick={() => setShowAbout(false)}
-                            className="mb-4 px-6 py-3 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl font-semibold hover:from-slate-600 hover:to-slate-700 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 border border-slate-600/50"
-                        >
-                            ← Back to Game
-                        </button>
-                        <About />
-                    </div>
-                </div>
+                <About onClose={() => setShowAbout(false)} />
             )}
 
             {/* Top Navigation Bar */}
-            <div className="flex-shrink-0 bg-slate-900/95 backdrop-blur-xl border-b border-slate-700/50 px-2 py-1 md:px-4 md:py-3 z-40 shadow-lg shadow-slate-900/50 w-full overflow-x-auto">
-                <div className="flex justify-between items-center gap-1 md:gap-2 whitespace-nowrap">
+            <div className="flex-shrink-0 bg-slate-900/95 backdrop-blur-xl border-b border-slate-700/50 px-2 py-1 md:px-4 md:py-3 z-40 shadow-lg shadow-slate-900/50 w-full">
+                <div className="flex justify-between items-center gap-1 md:gap-2 whitespace-nowrap min-w-0">
                     <h1 
-                        className="text-xs md:text-lg lg:text-xl font-bold bg-linear-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent cursor-pointer hover:from-blue-300 hover:to-purple-300 transition-all flex-shrink-0"
+                        className="text-base md:text-2xl lg:text-3xl font-bold bg-linear-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent cursor-pointer hover:from-blue-300 hover:to-purple-300 transition-all min-w-0 truncate leading-tight"
+                        style={{ fontSize: 'clamp(1rem, 6vw, 1.8rem)' }}
                         onClick={() => {
                             // Full reset: clear all state and disconnect from online game
                             if (online?.disconnect) {
                                 online.disconnect();
                             }
                             setMode("local");
-                            setGameStarted(true);
+                            setGameStarted(false);
                             setShowPlayFriend(false);
                             setShowPlayBot(false);
                             setGameOverInfo(null);
                             setFlipBoard(false);
                             setPlayerColor("w");
                             setIsUnbalanced(true);
+                            setIsBotGameTimed(false);
                             setPendingGameId(null);
                             setPendingGameSettings(null);
                             window.history.pushState({}, '', '/');
@@ -678,15 +709,16 @@ export default function BoardWrapper() {
                         }}
                     >
                         ♟️ Double-Move Chess
-                    </h1>
-                    <div className="flex gap-1 md:gap-2 items-center flex-shrink-0">
+                    </h1>  
+                    <div className="flex gap-1 md:gap-2 items-center flex-shrink">
                         <button
                             onClick={() => setFlipBoard((f) => !f)}
-                            className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white text-xs md:text-sm font-medium rounded-sm md:rounded-lg transition-all shadow-md hover:shadow-lg border border-slate-600/50 transform hover:scale-105 flex-shrink-0"
+                            aria-label="Flip board"
+                            className="w-7 h-7 p-0 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white text-[12px] font-medium rounded-full transition-colors shadow-sm border border-slate-600/50 flex-shrink-0 flex items-center justify-center md:rounded-md md:px-3 md:py-1 md:w-auto md:h-auto md:gap-2"
                         >
-                            <span className="hidden md:inline">🔄 Flip Board</span>
-                            <span className="md:hidden">🔄</span>
-                        </button>
+                            <span aria-hidden="true">🔄</span>
+                            <span className="hidden md:inline ml-1">Flip Board</span>
+                        </button> 
                         {/* Copy Link Button for Friend Mode */}
                         {mode === "friend" && online?.waiting && (
                             <button
@@ -694,29 +726,32 @@ export default function BoardWrapper() {
                                     navigator.clipboard.writeText(window.location.href);
                                     showToast('Link copied to clipboard!');
                                 }}
-                                className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-xs md:text-sm font-medium rounded-sm md:rounded-lg transition-all shadow-md hover:shadow-lg hover:shadow-emerald-500/50 border border-emerald-500/30 transform hover:scale-105 flex-shrink-0"
+                                aria-label="Copy link"
+                                className="w-7 h-7 p-0 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-[12px] font-medium rounded-full transition-colors shadow-sm hover:shadow-sm border border-emerald-500/30 flex-shrink-0 flex items-center justify-center md:rounded-md md:px-3 md:py-1 md:w-auto md:h-auto md:gap-2"
                             >
-                                <span className="hidden md:inline">📋 Copy Link</span>
-                                <span className="md:hidden">📋</span>
+                                <span aria-hidden="true">📋</span>
+                                <span className="hidden md:inline ml-1">Copy link</span>
                             </button>
-                        )}
+                        )} 
                         <button 
                             onClick={() => setShowAbout(true)}
-                            className="px-2 py-1 md:px-4 md:py-2 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white text-xs md:text-sm font-medium rounded-sm md:rounded-lg transition-all shadow-md hover:shadow-lg border border-slate-600/50 transform hover:scale-105 flex-shrink-0"
+                            aria-label="About"
+                            className="w-7 h-7 p-0 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white text-[12px] font-medium rounded-full transition-colors shadow-sm hover:shadow-sm border border-slate-600/50 flex-shrink-0 flex items-center justify-center md:rounded-md md:px-3 md:py-1 md:w-auto md:h-auto md:gap-2"
                         >
-                            <span className="hidden md:inline">ℹ️ About</span>
-                            <span className="md:hidden">ℹ️</span>
+                            <span aria-hidden="true">ℹ️</span>
+                            <span className="hidden md:inline ml-1">About</span>
                         </button>
                     </div>
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-1 md:p-4 flex flex-col lg:flex-row gap-1 md:gap-4 items-start justify-center w-full">
+            <div className="flex-1 overflow-y-auto p-1 md:p-4 flex flex-col lg:flex-row gap-1 md:gap-4 items-start w-full">
                 {/* LEFT PANEL */}
-                <div className="flex flex-col w-full lg:w-64 gap-2 md:gap-4 order-3 lg:order-1 px-2 md:px-0">
+                <div className="flex flex-col w-full lg:w-64 gap-2 md:gap-4 order-2 lg:order-1 px-2 md:px-0">
                 <Controls
                     onSelectMode={handleSelectMode}
                     onShowRules={() => setShowRules(true)}
+                    disabled={isGameActive}
                 />
                 <GameInfo
                     mode={mode}
@@ -746,10 +781,7 @@ export default function BoardWrapper() {
                     <div className="lg:hidden w-full">
                         <ClockView 
                             timeMs={getHistoricalClockTime('opponent')} 
-                            label={online?.isSpectator 
-                                ? (chess.playerColor === "w" ? (online?.opponentNames?.black || "Black") : (online?.opponentNames?.white || "White"))
-                                : (chess.playerColor === "w" ? (online?.opponentNames?.black || "Black") : (online?.opponentNames?.white || "White"))
-                            } 
+                            label={getClockLabel('top')} 
                         />
                     </div>
                 )}
@@ -762,6 +794,8 @@ export default function BoardWrapper() {
                         clock={clock}
                         gameStarted={gameStarted}
                         incrementSeconds={isBotGameTimed ? botIncrementSeconds : 0}
+                        isTimed={mode === "friend" || isBotGameTimed}
+                        gameOver={gameOverInfo}
                         {...boardProps}
                     />
                 </div>
@@ -771,55 +805,49 @@ export default function BoardWrapper() {
                     <div className="lg:hidden w-full">
                         <ClockView 
                             timeMs={getHistoricalClockTime('player')} 
-                            label={online?.isSpectator 
-                                ? (chess.playerColor === "w" ? (online?.opponentNames?.white || "White") : (online?.opponentNames?.black || "Black"))
-                                : (chess.playerColor === "w" ? (online?.opponentNames?.white || "White") : (online?.opponentNames?.black || "Black"))
-                            } 
+                            label={getClockLabel('bottom')} 
                         />
                     </div>
                 )}
                 
-                {/* CLOCKS + HISTORY - Right side of board - desktop only (only show if timed game) */}
-                {(mode === "friend" || isBotGameTimed) && (
-                    <div className="hidden lg:flex flex-col w-56 h-[560px]">
-                        {/* Opponent/Top clock */}
+                {/* CLOCKS + HISTORY - Right side of board - desktop only */}
+                <div className="hidden lg:flex flex-col w-56 h-[560px]">
+                    {/* Opponent/Top clock */}
+                    {(mode === "friend" || isBotGameTimed) && (
                         <ClockView 
                             timeMs={getHistoricalClockTime('opponent')} 
-                            label={online?.isSpectator 
-                                ? (chess.playerColor === "w" ? (online?.opponentNames?.black || "Black") : (online?.opponentNames?.white || "White"))
-                                : (chess.playerColor === "w" ? (online?.opponentNames?.black || "Black") : (online?.opponentNames?.white || "White"))
-                            } 
+                            label={getClockLabel('top')} 
                         />
-                        
-                        {/* Move History in the middle - fixed height */}
-                        <div className="my-2 h-[400px]">
-                            <MoveHistory
-                                moves={chess.moveHistory}
-                                viewIndex={viewIndex}
-                                onNavigate={setViewIndex}
-                            />
-                        </div>
-                        
-                        {/* Player/Bottom clock */}
-                        <ClockView 
-                            timeMs={getHistoricalClockTime('player')} 
-                            label={online?.isSpectator 
-                                ? (chess.playerColor === "w" ? (online?.opponentNames?.white || "White") : (online?.opponentNames?.black || "Black"))
-                                : (chess.playerColor === "w" ? (online?.opponentNames?.white || "White") : (online?.opponentNames?.black || "Black"))
-                            } 
+                    )}
+                    
+                    {/* Move History in the middle - fixed height */}
+                    <div className={`h-[400px] ${!(mode === "friend" || isBotGameTimed) ? "h-full" : "my-2"}`}>
+                        <MoveHistory
+                            moves={chess.moveHistory}
+                            viewIndex={viewIndex}
+                            onNavigate={setViewIndex}
                         />
                     </div>
-                )}
+                    
+                    {/* Player/Bottom clock */}
+                    {(mode === "friend" || isBotGameTimed) && (
+                        <ClockView 
+                            timeMs={getHistoricalClockTime('player')} 
+                            label={getClockLabel('bottom')} 
+                        />
+                    )}
+                </div>
+            </div>
 
             {/* RIGHT PANEL: HISTORY (for mobile only) */}
-            <div className="flex flex-col w-full lg:hidden gap-2 md:gap-4 order-2 lg:order-3 px-2 md:px-0">
+            <div className="flex flex-col w-full lg:hidden gap-2 md:gap-4 order-3 lg:order-3 px-2 md:px-0">
                 <MoveHistory
                     moves={chess.moveHistory}
                     viewIndex={viewIndex}
                     onNavigate={setViewIndex}
                 />
             </div>
-        </div>
+            </div>
 
         {gameOverInfo && !gameOverInfo.dismissed && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setGameOverInfo({...gameOverInfo, dismissed: true})}>
@@ -842,7 +870,6 @@ export default function BoardWrapper() {
                 </div>
             </div>
         )}
-        </div>
         </div>
     );
 }

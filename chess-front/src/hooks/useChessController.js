@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Chess } from "chess.js";
 
 /**
@@ -23,26 +23,8 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
   const movesInTurnRef = useRef(0);
   const [resigned, setResigned] = useState(null); // Track resignation
 
-  // When any move (local or remote) is recorded, enable clocks (if allowed)
-  useEffect(() => {
-    if (!enableClock) return;
-    if (!clockStarted && moveHistory.length > 0) {
-      setClockStarted(true);
-    }
-  }, [moveHistory.length, clockStarted, enableClock]);
-
-  // Switch clock only after the first move has been made and when clocks are enabled
-  useEffect(() => {
-    if (!clock?.start) return;
-    if (!enableClock) return;
-    if (!clockStarted) return;
-
-    const nextTurn = turn === "w" ? "white" : "black";
-    clock.start(nextTurn);
-  }, [turn, clock, clockStarted, enableClock]);
-
   // return an object (not destructured) so caller uses chess.someProp
-  function getMoveOptions(square) {
+  const getMoveOptions = useCallback((square) => {
     const moves = chessGame.moves({ square, verbose: true });
     if (!moves || moves.length === 0) return false;
     const squares = {};
@@ -55,9 +37,9 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
 
     setOptionSquares(squares);
     return true;
-  }
+  }, [chessGame]);
 
-  function applyLocalMove({ from, to, promotion }, { recordHistory = true } = {}) {
+  const applyLocalMove = useCallback(({ from, to, promotion }, { recordHistory = true } = {}) => {
     if (chessGame.isGameOver() || clock.status !== "" || resigned) return null;
     try {
       const prevMovesInTurn = movesInTurnRef.current;
@@ -123,8 +105,17 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
       }
       setHistoryIndex(null);
       // IMPORTANT: Use the turn from the game instance, which might have been flipped back
-      setTurn(chessGame.turn());
-      if (enableClock) setClockStarted(true);
+      const newTurn = chessGame.turn();
+      setTurn(newTurn);
+      
+      if (enableClock && gameMode === "local") {
+        setClockStarted(true);
+        // Start or switch clock on every move for local/bot games
+        if (clock && clock.start) {
+          console.log('[ChessController] Local clock transition to:', newTurn);
+          clock.start(newTurn);
+        }
+      }
 
       // Attach moves-in-turn metadata to the move object so callers can act on exact transition
       move._movesInTurn = { prev: prevMovesInTurn, current: movesInTurnRef.current };
@@ -134,9 +125,9 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
       console.warn("invalid move", e);
       return null;
     }
-  }
+  }, [chessGame, moveHistory.length, isUnbalanced, enableClock, clock.status, resigned]);
 
-  function resetGame({ keepClock = false } = {}) {
+  const resetGame = useCallback(({ keepClock = false } = {}) => {
     chessGame.reset();
     const startFen = chessGame.fen();
     setInitialFen(startFen);
@@ -154,15 +145,16 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
     if (!keepClock && clock?.reset) clock.reset();
 
     console.log("Game reset");
-  }
+  }, [chessGame, clock]);
 
-  function resign(color) {
+  const resign = useCallback((color) => {
     setResigned(color);
     if (clock?.pause) clock.pause();
     console.log(`${color === "w" ? "White" : "Black"} resigned`);
-  }
+  }, [clock]);
 
-  return {
+  // Wrap return object in useMemo to prevent infinite dependency loops
+  return useMemo(() => ({
     // refs & core
     chessGameRef,
     chessGame,
@@ -200,5 +192,5 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
 
     // initial position reference for history navigation
     initialFen,
-  };
+  }), [chessGameRef, chessGame, chessPosition, moveHistory, movesInTurn, historyIndex, turn, resigned, promotionMove, moveFrom, optionSquares, playerColor, getMoveOptions, applyLocalMove, resetGame, resign, initialFen]);
 }

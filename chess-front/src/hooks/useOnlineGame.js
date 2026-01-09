@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { io } from "socket.io-client";
 
 /**
@@ -146,6 +146,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
 
     socket.on("gameStarted", ({ gameId, color, fen, turn, whiteMs, blackMs, incrementMs, serverTime, history, movesInTurn }) => {
       console.log("game started", gameId, color);
+      console.log('[Online] gameStarted - clock times:', { whiteMs, blackMs, turn });
       
       // Clear old games but keep this one (since we are joining as a player)
       clearOldGames(gameId);
@@ -176,15 +177,15 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
         window.gameIncrementSeconds = Math.floor(incrementMs / 1000);
       }
 
-      // Sync clock state from server
+      // Sync clock state from server - DON'T start clock yet, wait for first move
       const { clock: currentClock, setChessPosition: scp, setMoveHistory: smh, setHistoryIndex: shi, setTurn: st, setMovesInTurn: smit } = propsRef.current;
       if (currentClock?.syncFromServer) {
-        // Start clock immediately upon refresh/reconnect
+        console.log('[Online] Calling syncFromServer with startClock=false');
         currentClock.syncFromServer(
           typeof whiteMs === 'number' ? whiteMs : initialTime * 1000,
           typeof blackMs === 'number' ? blackMs : initialTime * 1000,
           turn,
-          { startClock: true, serverTime }
+          { startClock: false, serverTime }  // Don't start clock yet
         );
       }
 
@@ -273,6 +274,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
 
     socket.on("moveMade", ({ move, fen, turn, movesInTurn, whiteMs, blackMs, serverTime }) => {
       console.log("move made", move.san);
+      console.log('[Online] moveMade - clock times:', { whiteMs, blackMs, turn });
       const { setChessPosition: scp, setMoveHistory: smh, setHistoryIndex: shi, setTurn: st, setMovesInTurn: smit, clock: c } = propsRef.current;
       
       if (!fen) return;
@@ -300,6 +302,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
 
       // Sync clock state from server after move (includes starting the clock)
       if (c?.syncFromServer) {
+        console.log('[Online] Calling syncFromServer with startClock=true on moveMade');
         c.syncFromServer(whiteMs, blackMs, turn, { startClock: true, serverTime });
       }
     });
@@ -360,7 +363,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function findOnlineGame(userId) {
+  const findOnlineGame = useCallback((userId) => {
     const socket = socketRef.current;
     if (!socket) {
       console.error("Socket not initialized");
@@ -377,9 +380,9 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     
     console.log("🔍 Finding game...");
     socket.emit("findGame", { userId });
-  }
+  }, []);
 
-  function joinSpecificGame(gameIdToJoin, userId, timeMinutes, incrementSeconds, playerColor) {
+  const joinSpecificGame = useCallback((gameIdToJoin, userId, timeMinutes, incrementSeconds, playerColor) => {
     const socket = socketRef.current;
     if (!socket || !socket.connected) {
       console.error("Cannot join game: socket not connected");
@@ -391,9 +394,9 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
 
     console.log("🔗 Joining specific game:", gameIdToJoin, "with", timeMinutes, "min +", incrementSeconds, "sec", "color:", playerColor);
     socket.emit("joinGame", { gameId: gameIdToJoin, userId, timeMinutes, incrementSeconds, playerColor });
-  }
+  }, []);
 
-  function sendMoveOnline(moveObj) {
+  const sendMoveOnline = useCallback((moveObj) => {
     const socket = socketRef.current;
     const currentGameId = gameIdRef.current;
     if (!socket || !socket.connected) {
@@ -401,9 +404,9 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
       return;
     }
     socket.emit("move", { move: moveObj, gameId: currentGameId });
-  }
+  }, []);
 
-  function resign() {
+  const resign = useCallback(() => {
     const socket = socketRef.current;
     const currentGameId = gameIdRef.current;
     
@@ -425,9 +428,9 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     
     hasResignedRef.current = true;
     socket.emit("resign", { gameId: currentGameId });
-  }
+  }, []);
 
-  function disconnect() {
+  const disconnect = useCallback(() => {
     const socket = socketRef.current;
     if (socket) {
       console.log('🧹 Manual disconnect called');
@@ -446,9 +449,10 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     setPlayerColor(null);
     setIsConnected(false);
     hasResignedRef.current = false;
-  }
+  }, []);
 
-  return {
+  // Memoize return object to prevent infinite dependency loops in useEffect
+  return useMemo(() => ({
     socketRef,
     waiting,
     gameId,
@@ -461,5 +465,5 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     sendMoveOnline,
     resign,
     disconnect,
-  };
+  }), [waiting, gameId, playerColor, isConnected, isSpectator, opponentNames, findOnlineGame, joinSpecificGame, sendMoveOnline, resign, disconnect]);
 }

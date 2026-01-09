@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 
 export default function useClock(initialTime = 300) {
 
@@ -90,6 +90,7 @@ export default function useClock(initialTime = 300) {
 
     const start = useCallback((side = "w") => {
         if (side !== "w" && side !== "b" && side !== null) return;
+        console.log('[Clock] start() called with side:', side);
         clockStateRef.current.lastUpdateTime = Date.now();
         setIsActive(true);
         setActivePlayer(side);
@@ -104,11 +105,28 @@ export default function useClock(initialTime = 300) {
         clockStateRef.current.isActive = false;
     }, []);
 
-    const reset = useCallback(() => {
+    const applyIncrement = useCallback((side, incrementSeconds) => {
+        if (!side || !incrementSeconds || incrementSeconds <= 0) return;
+        const player = (side === "w" || side === "white") ? "w" : "b";
+        const incMs = incrementSeconds * 1000;
+        
+        if (player === "w") {
+            clockStateRef.current.whiteMs += incMs;
+            setWhiteMs(clockStateRef.current.whiteMs);
+        } else {
+            clockStateRef.current.blackMs += incMs;
+            setBlackMs(clockStateRef.current.blackMs);
+        }
+        console.log(`[Clock] Applied increment to ${player}: +${incrementSeconds}s`);
+    }, []);
+
+    const reset = useCallback((opts = {}) => {
+        const { initialSeconds = initialTime } = opts;
+        
         if (animationFrameRef.current) {
             cancelAnimationFrame(animationFrameRef.current);
         }
-        const resetTime = initialTime * 1000;
+        const resetTime = initialSeconds * 1000;
         setWhiteMs(resetTime);
         setBlackMs(resetTime);
         clockStateRef.current.whiteMs = resetTime;
@@ -127,6 +145,14 @@ export default function useClock(initialTime = 300) {
     const syncFromServer = useCallback((serverWhiteMs, serverBlackMs, activePlayerColor, opts = {}) => {
         const { startClock = false, serverTime = Date.now() } = opts;
 
+        console.log('[Clock] syncFromServer called:', {
+            serverWhiteMs,
+            serverBlackMs,
+            activePlayerColor,
+            startClock,
+            serverTime
+        });
+
         // Update both state and ref for accurate tracking
         setWhiteMs(serverWhiteMs);
         setBlackMs(serverBlackMs);
@@ -136,13 +162,17 @@ export default function useClock(initialTime = 300) {
 
         if (startClock && activePlayerColor) {
             const player = activePlayerColor === "w" ? "w" : "b";
+            console.log('[Clock] Starting clock for player:', player);
             clockStateRef.current.activePlayer = player;
             setActivePlayer(player);
             setIsActive(true);
+        } else {
+            console.log('[Clock] NOT starting clock (startClock=' + startClock + ')');
         }
     }, []);
 
-    return {
+    // Wrap return object in useMemo to ensure stable references for dependency arrays
+    return useMemo(() => ({
         isActive,
         whiteMs,
         blackMs,
@@ -150,9 +180,10 @@ export default function useClock(initialTime = 300) {
         setActivePlayer,
         start,
         pause,
+        applyIncrement,
         status,
         isTimeout,
         reset,
         syncFromServer
-    };
+    }), [isActive, whiteMs, blackMs, setIsActive, setActivePlayer, start, pause, applyIncrement, status, isTimeout, reset, syncFromServer]);
 }
