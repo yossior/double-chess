@@ -29,7 +29,8 @@ export default function PromotionModal({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: "rgba(0,0,0,0.1)",
+          backgroundColor: "rgba(0,0,0,0.6)",
+          backdropFilter: "blur(4px)",
           zIndex: 1000,
         }}
       />
@@ -39,12 +40,15 @@ export default function PromotionModal({
           position: "absolute",
           ...topOrBottomStyle,
           left: promotionSquareLeft,
-          backgroundColor: "white",
+          backgroundColor: "#1e293b",
+          borderColor: "#475569",
+          borderWidth: "2px",
+          borderStyle: "solid",
           width: squareWidth,
           zIndex: 1001,
           display: "flex",
           flexDirection: "column",
-          boxShadow: "0 0 10px rgba(0,0,0,0.5)",
+          boxShadow: "0 0 20px rgba(0,0,0,0.8), 0 0 40px rgba(59,130,246,0.4)",
         }}
       >
         {["q", "r", "n", "b"].map((piece) => (

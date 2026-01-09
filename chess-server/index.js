@@ -87,10 +87,16 @@ process.on("SIGINT", () => {
   console.log("\n🛑 Shutting down gracefully...");
   server.close(() => {
     console.log("✅ Server closed");
-    mongoose.connection.close(false, () => {
-      console.log("✅ MongoDB disconnected");
-      process.exit(0);
-    });
+    Promise.resolve()
+      .then(() => mongoose.connection.close(false))
+      .then(() => {
+        console.log("✅ MongoDB disconnected");
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error("❌ Error closing MongoDB connection:", err?.message || err);
+        process.exit(1);
+      });
   });
 });
 

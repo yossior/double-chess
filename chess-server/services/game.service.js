@@ -9,21 +9,139 @@ class GameService {
   }
 
   /**
-   * Create a new game with initial player
+   * Check if a DB game document represents a completed game
    */
-  createGame(socketId, userId = null) {
-    const gameId = Math.random().toString(36).substr(2, 9);
+  _isDbGameCompleted(dbGame) {
+    if (!dbGame) return false;
+    return Boolean(
+      dbGame.completedAt ||
+      dbGame.result ||
+      dbGame.winner ||
+      dbGame.status === 'completed'
+    );
+  }
+
+  /**
+   * Replay moves from DB to rebuild Chess instance and history for spectators
+   */
+  _replayMovesForSpectator(moves = [], isUnbalanced = true) {
     const chess = new Chess();
+    const historyMoves = [];
+    let movesInTurn = 0;
+
+    for (let i = 0; i < moves.length; i++) {
+      const san = moves[i];
+      const result = chess.move(san);
+      if (!result) break;
+
+      // Apply the same double-move turn-flip logic used during live play
+      if (!chess.isGameOver()) {
+        const isFirstTurnBalanced = !isUnbalanced && i === 0 && result.color === 'w';
+        
+        if (isFirstTurnBalanced) {
+          movesInTurn = 0;
+        } else if (movesInTurn === 0) {
+          if (result.san.includes('+')) {
+            movesInTurn = 0;
+          } else {
+            const parts = chess.fen().split(' ');
+            parts[1] = parts[1] === 'w' ? 'b' : 'w';
+            parts[3] = '-';
+            chess.load(parts.join(' '));
+            movesInTurn = 1;
+          }
+        } else {
+          movesInTurn = 0;
+        }
+      } else {
+        movesInTurn = 0;
+      }
+
+      historyMoves.push({
+        san: result.san,
+        color: result.color,
+        fen: chess.fen(),
+      });
+    }
+
+    return { chess, historyMoves, movesInTurn };
+  }
+
+  /**
+   * After a server restart, hydrate a game from MongoDB by its public gameId.
+   * Returns the in-memory game object or null if not found.
+   */
+  async hydrateGameFromDb(gameId) {
+    if (!gameId) return null;
+    if (this.games.has(gameId)) return this.games.get(gameId);
+
+    let dbGame = null;
+    try {
+      dbGame = await Game.findOne({ gameId })
+        .populate('white', 'username')
+        .populate('black', 'username');
+    } catch (error) {
+      console.error(`[DB] Failed to query game by gameId ${gameId}:`, error);
+      return null;
+    }
+
+    if (!dbGame) return null;
+
+    console.log(`[DB] Hydrating game ${gameId} from database (completed: ${this._isDbGameCompleted(dbGame)})`);
+
+    const isCompleted = this._isDbGameCompleted(dbGame);
+    const gameIsUnbalanced = dbGame.isUnbalanced !== undefined ? dbGame.isUnbalanced : true;
     
+    const { chess, historyMoves, movesInTurn } = this._replayMovesForSpectator(dbGame.moves || [], gameIsUnbalanced);
+
+    // Trust the persisted final FEN for the final position
+    if (dbGame.fen) {
+      try {
+        chess.load(dbGame.fen);
+      } catch {
+        // ignore; keep replayed position
+      }
+    }
+
+    // Map DB players to the format expected by the service
+    const players = [];
+    if (dbGame.white) {
+      players.push({
+        userId: dbGame.white._id || dbGame.white,
+        username: dbGame.white.username,
+        color: 'w',
+        socketId: null // Not connected yet
+      });
+    }
+    if (dbGame.black) {
+      players.push({
+        userId: dbGame.black._id || dbGame.black,
+        username: dbGame.black.username,
+        color: 'b',
+        socketId: null // Not connected yet
+      });
+    }
+
     const game = {
       id: gameId,
       chess,
-      players: [{ socketId, userId, color: "w" }],
-      createdAt: Date.now(),
-      startedAt: null,
-      whiteMs: CLOCK.INITIAL_TIME_MS,
-      blackMs: CLOCK.INITIAL_TIME_MS,
+      players,
+      spectators: [],
+      createdAt: dbGame.createdAt ? new Date(dbGame.createdAt).getTime() : Date.now(),
+      startedAt: dbGame.startedAt ? new Date(dbGame.startedAt).getTime() : null,
+      whiteMs: dbGame.whiteMs ?? CLOCK.INITIAL_TIME_MS,
+      blackMs: dbGame.blackMs ?? CLOCK.INITIAL_TIME_MS,
+      incrementMs: dbGame.increment ?? CLOCK.INCREMENT_MS,
       lastMoveTime: null,
+      historyMoves,
+      movesInTurn,
+      isUnbalanced: gameIsUnbalanced,
+      isCompleted,
+      completedAt: dbGame.completedAt ? new Date(dbGame.completedAt).getTime() : null,
+      savedGameId: dbGame._id,
+      gameResult: dbGame.result ?? null,
+      winner: dbGame.winner ?? null,
+      dbStatus: dbGame.status ?? null,
     };
 
     this.games.set(gameId, game);
@@ -31,18 +149,122 @@ class GameService {
   }
 
   /**
-   * Join an existing game
+   * Create a new game with initial player
    */
-  joinGame(socketId, userId = null, gameId) {
-    const game = this.games.get(gameId);
-    if (!game) return null;
-    if (game.players.length >= 2) return null;
+  createGame(socketId, userId = null) {
+    const gameId = Math.random().toString(36).substr(2, 9);
+    return this.createGameWithId(gameId, socketId, userId);
+  }
 
-    game.players.push({ socketId, userId, color: "b" });
-    game.startedAt = Date.now();
-    // Don't set lastMoveTime here - it will be set after the first move
+  /**
+   * Create a new game with specific ID (for friend mode)
+   */
+  createGameWithId(gameId, socketId, userId = null, isUnbalanced = true, timeMinutes = null, incrementSeconds = null, playerColor = 'w') {
+    // Check if game already exists
+    if (this.games.has(gameId)) {
+      return this.games.get(gameId);
+    }
+
+    const chess = new Chess();
     
+    // Use custom time or default
+    const initialTimeMs = timeMinutes ? timeMinutes * 60 * 1000 : CLOCK.INITIAL_TIME_MS;
+    const incrementMs = incrementSeconds !== null ? incrementSeconds * 1000 : CLOCK.INCREMENT_MS;
+    
+    const game = {
+      id: gameId,
+      chess,
+      players: [{ socketId, userId, color: playerColor }],
+      spectators: [], // Track spectators
+      createdAt: Date.now(),
+      startedAt: null,
+      whiteMs: initialTimeMs,
+      blackMs: initialTimeMs,
+      incrementMs: incrementMs,
+      lastMoveTime: null,
+      historyMoves: [],
+      movesInTurn: 0,
+      isUnbalanced: isUnbalanced,
+      isCompleted: false,
+      completedAt: null,
+      savedGameId: null, // MongoDB _id after saving
+      gameResult: null, // 'checkmate', 'resignation', 'timeout', 'draw', etc.
+      winner: null, // 'white', 'black', or null
+    };
+
+    this.games.set(gameId, game);
     return game;
+  }
+
+  /**
+   * Join an existing game (or create if doesn't exist for friend mode)
+   */
+  joinGame(socketId, userId = null, gameId, timeMinutes = null, incrementSeconds = null, playerColor = null) {
+    let game = this.games.get(gameId);
+    
+    // If game doesn't exist, create it (first player joining via link)
+    if (!game) {
+      // Use provided color or default to white
+      const creatorColor = playerColor || 'w';
+      game = this.createGameWithId(gameId, socketId, userId, true, timeMinutes, incrementSeconds, creatorColor);
+      return { game, role: 'player' };
+    }
+    
+    // Check if this socket or user is already a player in this game (reconnection)
+    const existingPlayer = game.players.find(p => {
+      // Same socket ID (same browser session)
+      if (p.socketId === socketId) return true;
+      
+      // Same user ID (logged in, different session)
+      if (userId && p.userId && p.userId === userId) return true;
+      
+      // Same color with both being guests (no userIds) - for guest reconnection
+      if (playerColor && p.color === playerColor && !p.userId && !userId) return true;
+      
+      return false;
+    });
+    if (existingPlayer) {
+      // Update socket ID for reconnection
+      existingPlayer.socketId = socketId;
+      // Also update userId if this is the first time we're getting it
+      if (userId && !existingPlayer.userId) {
+        existingPlayer.userId = userId;
+      }
+      console.log(`[Game] Player reconnected to game ${gameId} as ${existingPlayer.color}`);
+      return { game, role: 'player', reconnected: true };
+    }
+    
+    // If game is completed, return as spectator
+    if (game.isCompleted) {
+      game.spectators.push({ socketId, userId });
+      return { game, role: 'spectator' };
+    }
+
+    // Hydrated games (after restart) may have zero active players in memory.
+    // Treat the first join as the first player instead of forcing them into the "second player" branch.
+    if (game.players.length === 0) {
+      const creatorColor = playerColor || 'w';
+      game.players.push({ socketId, userId, color: creatorColor });
+      if (!game.startedAt && (game.dbStatus === 'in_progress' || game.dbStatus === 'active')) {
+        game.startedAt = Date.now();
+      }
+      return { game, role: 'player' };
+    }
+    
+    // If game already has 2 players, join as spectator
+    if (game.players.length >= 2) {
+      game.spectators.push({ socketId, userId });
+      return { game, role: 'spectator' };
+    }
+
+    // Join as second player - assign opposite color of first player
+    const firstPlayerColor = game.players[0]?.color || 'w';
+    const secondPlayerColor = firstPlayerColor === 'w' ? 'b' : 'w';
+    game.players.push({ socketId, userId, color: secondPlayerColor });
+    game.startedAt = Date.now();
+    game.lastMoveTime = Date.now(); // Start the clock for the first player
+    
+    return { game, role: 'player' };
   }
 
   /**
@@ -60,7 +282,8 @@ class GameService {
     });
 
     if (waitingGame) {
-      return { game: this.joinGame(socketId, userId, waitingGame.id), isNew: false };
+      const result = this.joinGame(socketId, userId, waitingGame.id);
+      return { game: result.game, isNew: false };
     } else {
       return { game: this.createGame(socketId, userId), isNew: true };
     }
@@ -94,25 +317,76 @@ class GameService {
       return { success: false, error: "Illegal move", move };
     }
 
+    // Double-move logic
+    // In balanced mode: white's first turn is single move only, then double moves for everyone
+    // In unbalanced mode: always double moves
+    const totalMoves = game.historyMoves.length; // moves before this one
+    const isFirstTurnBalanced = !game.isUnbalanced && totalMoves === 0 && result.color === 'w';
+    
+    if (!game.chess.isGameOver()) {
+      if (isFirstTurnBalanced) {
+        // Balanced mode, first turn - white only gets 1 move
+        game.movesInTurn = 0;
+      } else if (game.movesInTurn === 0) {
+        // First move of the turn (double move applies)
+        // If check, turn ends. Otherwise, same player moves again.
+        if (result.san.includes('+')) {
+          game.movesInTurn = 0;
+        } else {
+          // Flip turn back to the player who just moved
+          const fen = game.chess.fen();
+          const parts = fen.split(' ');
+          // parts[1] is the current active color (which just switched). We want to revert it.
+          parts[1] = parts[1] === 'w' ? 'b' : 'w';
+          // Clear en-passant target
+          parts[3] = '-';
+          const newFen = parts.join(' ');
+          game.chess.load(newFen);
+          game.movesInTurn = 1;
+        }
+      } else {
+        // Second move of the turn
+        game.movesInTurn = 0;
+      }
+    } else {
+      game.movesInTurn = 0;
+    }
+
     // Calculate elapsed time since last move (or game start)
     const now = Date.now();
     const elapsed = game.lastMoveTime ? (now - game.lastMoveTime) : 0;
 
-    // Update clock: subtract elapsed time from moving player, then add increment
+    // Update clock: subtract elapsed time from moving player
     if (player.color === "w") {
-      game.whiteMs = Math.max(0, game.whiteMs - elapsed) + CLOCK.INCREMENT_MS;
+      game.whiteMs = Math.max(0, game.whiteMs - elapsed);
     } else {
-      game.blackMs = Math.max(0, game.blackMs - elapsed) + CLOCK.INCREMENT_MS;
+      game.blackMs = Math.max(0, game.blackMs - elapsed);
+    }
+
+    // Apply increment only when turn ends (movesInTurn becomes 0)
+    if (game.movesInTurn === 0) {
+      const incrementMs = game.incrementMs ?? CLOCK.INCREMENT_MS;
+      if (player.color === "w") {
+        game.whiteMs = game.whiteMs + incrementMs;
+      } else {
+        game.blackMs = game.blackMs + incrementMs;
+      }
     }
 
     // Update last move time for next move
     game.lastMoveTime = now;
 
+    const fenAfter = game.chess.fen();
+
+    // Store move with FEN, clock times, and server time for spectators
+    game.historyMoves.push({ ...result, fen: fenAfter, whiteMs: game.whiteMs, blackMs: game.blackMs, serverTime: now });
+
     return {
       success: true,
       move: result,
-      fen: game.chess.fen(),
+      fen: fenAfter,
       turn: game.chess.turn(),
+      movesInTurn: game.movesInTurn,
       whiteMs: game.whiteMs,
       blackMs: game.blackMs,
       serverTime: now,
@@ -136,29 +410,50 @@ class GameService {
   }
 
   /**
-   * Save game to database
+   * Save game to database and mark as completed
    */
-  async saveGameToDb(gameId, result) {
+  async saveGameToDb(gameId, result, winner = null) {
     const game = this.games.get(gameId);
     if (!game) return;
+
+    // Mark game as completed in memory FIRST (before async DB operation)
+    // This ensures the game state is correct even if DB fails
+    game.isCompleted = true;
+    game.completedAt = Date.now();
+    game.gameResult = result;
+    game.winner = winner;
 
     try {
       const whitePlayer = game.players.find(p => p.color === 'w');
       const blackPlayer = game.players.find(p => p.color === 'b');
 
-      // Only save if at least one player is a registered user
-      if (!whitePlayer?.userId && !blackPlayer?.userId) return;
+      // Save game to database (even for guest games, so they can be viewed)
+      // Use upsert by gameId to avoid duplicate key errors if game was already synced
+      const newGame = await Game.findOneAndUpdate(
+        { gameId },
+        {
+          $set: {
+            white: whitePlayer?.userId || null,
+            black: blackPlayer?.userId || null,
+            moves: game.chess.history(),
+            fen: game.chess.fen(),
+            status: 'completed',
+            result: result, // 'checkmate', 'draw', 'resignation', etc.
+            winner: winner, // 'white', 'black', or null
+            whiteMs: game.whiteMs,
+            blackMs: game.blackMs,
+            isUnbalanced: game.isUnbalanced,
+            completedAt: new Date(),
+          },
+          $setOnInsert: {
+            gameId,
+            startedAt: game.startedAt ? new Date(game.startedAt) : null,
+          },
+        },
+        { upsert: true, new: true }
+      );
 
-      const newGame = await Game.create({
-        white: whitePlayer?.userId || null,
-        black: blackPlayer?.userId || null,
-        moves: game.chess.history(),
-        fen: game.chess.fen(),
-        result: result, // 'checkmate', 'draw', etc.
-        winner: result === 'checkmate' ? (game.chess.turn() === 'w' ? 'black' : 'white') : null
-      });
-
-      // Update users' game history
+      // Update users' game history if they're registered
       if (whitePlayer?.userId) {
         await User.findByIdAndUpdate(whitePlayer.userId, { $push: { games: newGame._id } });
       }
@@ -166,9 +461,28 @@ class GameService {
         await User.findByIdAndUpdate(blackPlayer.userId, { $push: { games: newGame._id } });
       }
 
-      console.log(`[DB] Saved game ${gameId} to database`);
+      game.savedGameId = newGame._id;
+
+      console.log(`[DB] Saved game ${gameId} to database with ID ${newGame._id}`);
+      return newGame._id;
     } catch (error) {
       console.error(`[DB] Failed to save game ${gameId}:`, error);
+      // Game is still marked completed in memory even if DB save fails
+    }
+  }
+
+  /**
+   * Get completed game from database
+   */
+  async getCompletedGameFromDb(gameId) {
+    try {
+      const game = await Game.findOne({ gameId })
+        .populate('white', 'username')
+        .populate('black', 'username');
+      return game;
+    } catch (error) {
+      console.error(`[DB] Failed to fetch game ${gameId}:`, error);
+      return null;
     }
   }
 

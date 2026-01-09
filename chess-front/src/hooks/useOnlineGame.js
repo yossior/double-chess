@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { io } from "socket.io-client";
 
 /**
@@ -11,12 +11,78 @@ import { io } from "socket.io-client";
  *
  * Important: cleanup calls socket.close() so reconnection stops.
  */
-export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, setHistoryIndex, setTurn, playerColor, setPlayerColor, clock) {
+export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, setHistoryIndex, setTurn, playerColor, setPlayerColor, clock, isUnbalanced = true, setMovesInTurn, onGameOver, setIsUnbalanced) {
   const socketRef = useRef(null);
+  const gameIdRef = useRef(null);
+  const hasResignedRef = useRef(false);
+  const onGameOverRef = useRef(onGameOver);
+  
+  // Use a ref for all parameters to avoid stale closures in socket event handlers
+  const propsRef = useRef({
+    setChessPosition,
+    setMoveHistory,
+    setHistoryIndex,
+    setTurn,
+    playerColor,
+    setPlayerColor,
+    clock,
+    isUnbalanced,
+    setMovesInTurn,
+    onGameOver,
+    setIsUnbalanced
+  });
+
+  // Update propsRef on every render
+  propsRef.current = {
+    setChessPosition,
+    setMoveHistory,
+    setHistoryIndex,
+    setTurn,
+    playerColor,
+    setPlayerColor,
+    clock,
+    isUnbalanced,
+    setMovesInTurn,
+    onGameOver,
+    setIsUnbalanced
+  };
+
   const [waiting, setWaiting] = useState(false);
   const [gameId, setGameId] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isSpectator, setIsSpectator] = useState(false);
+  const [opponentNames, setOpponentNames] = useState({ white: 'White', black: 'Black' });
   const initialTime = 300; // Default initial time in seconds
+
+  /**
+   * Helper to clear old game data from localStorage
+   */
+  const clearOldGames = (excludeGameId = null) => {
+    if (typeof window === 'undefined') return;
+    
+    // Find and remove all chess_game_ keys and the main active game key
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      
+      // Clear specific game settings or the active game session
+      if (key.startsWith('chess_game_') || key === 'chess_active_game' || key === 'chess_active_bot_game') {
+        // Don't remove the key for the game we are currently joining
+        if (excludeGameId && key === `chess_game_${excludeGameId}`) continue;
+        
+        keysToRemove.push(key);
+      }
+    }
+    
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+    if (keysToRemove.length > 0) {
+      console.log("🧹 Cleared old game data from localStorage:", keysToRemove);
+    }
+  };
+
+  // Update ref synchronously on EVERY render (not in an effect)
+  onGameOverRef.current = onGameOver;
 
   useEffect(() => {
     // Close any old socket (defensive, useful for HMR)
@@ -26,6 +92,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
 
     const socket = io("http://localhost:5001", {
       reconnection: true,
+      transports: ['websocket', 'polling'],
     });
     socketRef.current = socket;
 
@@ -51,47 +118,192 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     });
 
     // server events
-    socket.on("waitingForOpponent", ({ gameId }) => {
-      console.log("waiting for opponent", gameId);
+    socket.on("waitingForOpponent", ({ gameId, color, whiteMs, blackMs, incrementMs }) => {
+      console.log("waiting for opponent", gameId, "assigned color:", color);
       setWaiting(true);
       setGameId(gameId);
+      gameIdRef.current = gameId;
+      hasResignedRef.current = false;
+      
+      // Store game info for reconnection on page refresh and for second player to find
+      if (typeof window !== 'undefined') {
+        // Calculate time in minutes and seconds from milliseconds
+        const timeMinutes = whiteMs ? Math.round(whiteMs / 1000 / 60) : 5;
+        const incrementSeconds = incrementMs ? Math.round(incrementMs / 1000) : 2;
+        
+        // Store game settings for second player (and this player's color confirmation)
+        const gameSettings = {
+          gameId,
+          timeMinutes,
+          incrementSeconds,
+          color, // Include assigned color
+          mode: 'friend'
+        };
+        localStorage.setItem(`chess_game_${gameId}`, JSON.stringify(gameSettings));
+        console.log("Stored game settings for waiting game", gameId, gameSettings);
+      }
     });
 
-    socket.on("gameStarted", ({ gameId, color, fen, turn, whiteMs, blackMs, serverTime }) => {
+    socket.on("gameStarted", ({ gameId, color, fen, turn, whiteMs, blackMs, incrementMs, serverTime, history, movesInTurn }) => {
       console.log("game started", gameId, color);
+      console.log('[Online] gameStarted - clock times:', { whiteMs, blackMs, turn });
+      
+      // Clear old games but keep this one (since we are joining as a player)
+      clearOldGames(gameId);
+
       setWaiting(false);
       setGameId(gameId);
-      setPlayerColor(color);
+      gameIdRef.current = gameId;
+      hasResignedRef.current = false;
+      propsRef.current.setPlayerColor(color);
+      setIsSpectator(false);
 
-      // Sync clock state from server
-      if (clock?.syncFromServer) {
-        clock.syncFromServer(whiteMs || initialTime * 1000, blackMs || initialTime * 1000, turn, { startClock: false });
+      // Store game info for reconnection on page refresh
+      if (typeof window !== 'undefined') {
+        const timeMinutes = Math.round(whiteMs / 1000 / 60);
+        const incrementSeconds = incrementMs ? Math.round(incrementMs / 1000) : 2;
+        
+        localStorage.setItem(`chess_active_game`, JSON.stringify({
+          gameId,
+          color,
+          mode: 'friend',
+          timeMinutes,
+          incrementSeconds
+        }));
+      }
+
+      // Store increment (convert ms to seconds)
+      if (incrementMs !== undefined && typeof window !== 'undefined') {
+        window.gameIncrementSeconds = Math.floor(incrementMs / 1000);
+      }
+
+      // Sync clock state from server - DON'T start clock yet, wait for first move
+      const { clock: currentClock, setChessPosition: scp, setMoveHistory: smh, setHistoryIndex: shi, setTurn: st, setMovesInTurn: smit } = propsRef.current;
+      if (currentClock?.syncFromServer) {
+        console.log('[Online] Calling syncFromServer with startClock=false');
+        currentClock.syncFromServer(
+          typeof whiteMs === 'number' ? whiteMs : initialTime * 1000,
+          typeof blackMs === 'number' ? blackMs : initialTime * 1000,
+          turn,
+          { startClock: false, serverTime }  // Don't start clock yet
+        );
       }
 
       // sync position
       try {
         chessGameRef.current?.load?.(fen);
-        setChessPosition(fen);
-        setMoveHistory([]);
-        setHistoryIndex(null);
-        setTurn(turn);
+        scp(fen);
+        smh(history || []);
+        shi(null);
+        st(turn);
+        
+        // Sync movesInTurn if available
+        if (movesInTurn !== undefined && smit) {
+          smit(movesInTurn);
+        }
       } catch (e) {
         console.warn("failed to load fen", e);
       }
     });
 
-    socket.on("moveMade", ({ move, fen, turn, whiteMs, blackMs, serverTime }) => {
-      console.log("move made", move);
+    socket.on("spectatorJoined", ({ gameId, fen, turn, whiteMs, blackMs, incrementMs, serverTime, history, isCompleted, movesInTurn, gameResult, winner, whitePlayer, blackPlayer, isUnbalanced: serverIsUnbalanced }) => {
+      console.log("joined as spectator", gameId, "fen:", fen, "history length:", history?.length, "isCompleted:", isCompleted);
+      
+      // Clear all active game IDs from localStorage when spectating
+      clearOldGames();
+
+      const { setChessPosition: scp, setMoveHistory: smh, setHistoryIndex: shi, setTurn: st, setMovesInTurn: smit, clock: c, onGameOver: ogo, setIsUnbalanced: siu } = propsRef.current;
+      
+      setWaiting(false);
+      setGameId(gameId);
+      gameIdRef.current = gameId;
+      setIsSpectator(true);
+      propsRef.current.setPlayerColor(null); // No color for spectators
+      
+      if (whitePlayer && blackPlayer) {
+        setOpponentNames({ white: whitePlayer, black: blackPlayer });
+      }
+      
+      if (serverIsUnbalanced !== undefined && siu) {
+        siu(serverIsUnbalanced);
+      }
+
+      // Store increment (convert ms to seconds)
+      if (incrementMs !== undefined && typeof window !== 'undefined') {
+        window.gameIncrementSeconds = Math.floor(incrementMs / 1000);
+      }
+
+      // Sync clock state from server
+      if (c?.syncFromServer) {
+        c.syncFromServer(
+          typeof whiteMs === 'number' ? whiteMs : initialTime * 1000,
+          typeof blackMs === 'number' ? blackMs : initialTime * 1000,
+          turn,
+          { startClock: !isCompleted, serverTime }
+        );
+      }
+
+      // If game is completed, notify the game over handler
+      if (isCompleted && ogo) {
+        ogo({ reason: gameResult || 'game over', winner: winner || null });
+      }
+
+      // For spectators, trust the server-provided history (with FEN) and final FEN
+      try {
+        const chessGame = chessGameRef.current;
+        if (!chessGame) {
+          console.error("Chess game not initialized for spectator");
+          return;
+        }
+
+        chessGame.reset();
+        chessGame.load(fen);
+        scp(fen);
+        smh(history || []);
+        shi(null);
+        st(turn);
+
+        // Sync movesInTurn for spectators
+        if (movesInTurn !== undefined && smit) {
+          smit(movesInTurn);
+        }
+      } catch (e) {
+        console.error("failed to load spectator state", e);
+      }
+    });
+
+    socket.on("moveMade", ({ move, fen, turn, movesInTurn, whiteMs, blackMs, serverTime }) => {
+      console.log("move made", move.san);
+      console.log('[Online] moveMade - clock times:', { whiteMs, blackMs, turn });
+      const { setChessPosition: scp, setMoveHistory: smh, setHistoryIndex: shi, setTurn: st, setMovesInTurn: smit, clock: c } = propsRef.current;
+      
       if (!fen) return;
       chessGameRef.current?.load?.(fen);
-      setChessPosition(fen);
-      if (move?.san) setMoveHistory((prev) => [...prev, move.san]);
-      setHistoryIndex(null);
-      setTurn(turn);
+      scp(fen);
+      
+      // Store full move object with FEN and clock times for proper history navigation
+      if (move) {
+        const moveObject = {
+          ...move,
+          fen: fen,
+          whiteMs: whiteMs,
+          blackMs: blackMs,
+        };
+        smh((prev) => [...prev, moveObject]);
+      }
+      
+      shi(null);
+      st(turn);
+      
+      // Update movesInTurn from server
+      if (movesInTurn !== undefined && smit) {
+        smit(movesInTurn);
+      }
 
       // Sync clock state from server after move (includes starting the clock)
-      if (clock?.syncFromServer) {
-        clock.syncFromServer(whiteMs, blackMs, turn, { startClock: true });
+      if (c?.syncFromServer) {
+        console.log('[Online] Calling syncFromServer with startClock=true on moveMade');
+        c.syncFromServer(whiteMs, blackMs, turn, { startClock: true, serverTime });
       }
     });
 
@@ -105,11 +317,32 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
       setTurn(chessGame.turn());
     });
 
-    socket.on("gameOver", ({ reason }) => {
-      alert(`Game Over: ${reason}`);
+    socket.on("gameOver", ({ reason, winner }) => {
+      console.log("[gameOver] Socket event received:", { reason, winner });
+      
+      const { onGameOver: callback, clock: c } = propsRef.current;
+      console.log("[gameOver] callback type:", typeof callback);
+      if (callback) {
+        console.log("[gameOver] Calling callback...");
+        try {
+          callback({ reason, winner });
+          console.log("[gameOver] Callback executed successfully");
+        } catch (error) {
+          console.error("[gameOver] Error calling callback:", error);
+        }
+      } else {
+        console.error("[gameOver] callback is null/undefined!");
+      }
+      
+      // Clean up game state and stored info
       setWaiting(false);
       setGameId(null);
-      if (clock?.pause) clock.pause();
+      gameIdRef.current = null;
+      
+      // Clear all game-related storage on game over
+      clearOldGames();
+      
+      if (c?.pause) c.pause();
     });
 
     socket.on("error", (msg) => {
@@ -130,7 +363,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function findOnlineGame(userId) {
+  const findOnlineGame = useCallback((userId) => {
     const socket = socketRef.current;
     if (!socket) {
       console.error("Socket not initialized");
@@ -141,26 +374,96 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
       alert("Connection not established yet. Try again in a few seconds.");
       return;
     }
+    
+    // Clear old game data before starting a new search
+    clearOldGames();
+    
     console.log("🔍 Finding game...");
     socket.emit("findGame", { userId });
-  }
+  }, []);
 
-  function sendMoveOnline(moveObj) {
+  const joinSpecificGame = useCallback((gameIdToJoin, userId, timeMinutes, incrementSeconds, playerColor) => {
     const socket = socketRef.current;
+    if (!socket || !socket.connected) {
+      console.error("Cannot join game: socket not connected");
+      return;
+    }
+
+    // Clear old game data before joining a new specific game, preserving the current one
+    clearOldGames(gameIdToJoin);
+
+    console.log("🔗 Joining specific game:", gameIdToJoin, "with", timeMinutes, "min +", incrementSeconds, "sec", "color:", playerColor);
+    socket.emit("joinGame", { gameId: gameIdToJoin, userId, timeMinutes, incrementSeconds, playerColor });
+  }, []);
+
+  const sendMoveOnline = useCallback((moveObj) => {
+    const socket = socketRef.current;
+    const currentGameId = gameIdRef.current;
     if (!socket || !socket.connected) {
       console.error("Cannot send move: socket not connected");
       return;
     }
-    socket.emit("move", { move: moveObj, gameId });
-  }
+    socket.emit("move", { move: moveObj, gameId: currentGameId });
+  }, []);
 
-  return {
+  const resign = useCallback(() => {
+    const socket = socketRef.current;
+    const currentGameId = gameIdRef.current;
+    
+    // Prevent duplicate resign calls
+    if (hasResignedRef.current) {
+      console.log('[resign] Already resigned, ignoring duplicate call');
+      return;
+    }
+    
+    console.log('[resign] Debug:', { 
+      hasSocket: !!socket, 
+      isConnected: socket?.connected, 
+      gameId: currentGameId 
+    });
+    if (!socket || !socket.connected || !currentGameId) {
+      console.error("Cannot resign: socket not connected or no active game");
+      return;
+    }
+    
+    hasResignedRef.current = true;
+    socket.emit("resign", { gameId: currentGameId });
+  }, []);
+
+  const disconnect = useCallback(() => {
+    const socket = socketRef.current;
+    if (socket) {
+      console.log('🧹 Manual disconnect called');
+      try {
+        socket.close();
+      } catch (e) {
+        console.warn('Error closing socket during disconnect:', e);
+      }
+      socketRef.current = null;
+    }
+    // Reset all state
+    setWaiting(false);
+    setGameId(null);
+    gameIdRef.current = null;
+    setIsSpectator(false);
+    setPlayerColor(null);
+    setIsConnected(false);
+    hasResignedRef.current = false;
+  }, []);
+
+  // Memoize return object to prevent infinite dependency loops in useEffect
+  return useMemo(() => ({
     socketRef,
     waiting,
     gameId,
     playerColor,
     isConnected,
+    isSpectator,
+    opponentNames,
     findOnlineGame,
+    joinSpecificGame,
     sendMoveOnline,
-  };
+    resign,
+    disconnect,
+  }), [waiting, gameId, playerColor, isConnected, isSpectator, opponentNames, findOnlineGame, joinSpecificGame, sendMoveOnline, resign, disconnect]);
 }

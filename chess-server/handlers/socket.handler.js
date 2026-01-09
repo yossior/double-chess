@@ -28,13 +28,18 @@ function registerSocketHandlers(io, socket) {
     handleFindGame(io, socket, userId);
   });
 
-  socket.on("joinGame", ({ gameId, userId } = {}) => {
-    handleJoinGame(io, socket, gameId, userId);
+  socket.on("joinGame", async ({ gameId, userId, timeMinutes, incrementSeconds, playerColor } = {}) => {
+    await handleJoinGame(io, socket, gameId, userId, timeMinutes, incrementSeconds, playerColor);
   });
 
   // Game moves
   socket.on("move", ({ gameId, move }) => {
     handleMove(io, socket, gameId, move);
+  });
+
+  // Resignation
+  socket.on("resign", ({ gameId }) => {
+    handleResign(io, socket, gameId);
   });
 
   // Disconnection
@@ -57,25 +62,19 @@ function handleFindGame(io, socket, userId = null) {
   
   if (isNew) {
     // New game created, waiting for opponent
-    socket.emit("waitingForOpponent", { gameId: game.id });
+    socket.emit("waitingForOpponent", { 
+      gameId: game.id,
+      whiteMs: game.whiteMs,
+      blackMs: game.blackMs,
+      incrementMs: game.incrementMs
+    });
     console.log(`[Game] ${socket.id} created game ${game.id}`);
   } else {
-    // Joined existing game, notify both players in the room
+    // Joined existing game, notify both players
     const white = game.players.find((p) => p.color === "w");
     const black = game.players.find((p) => p.color === "b");
     
-    // Broadcast to room (both players will receive)
-    io.to(game.id).emit("gameStarted", {
-      gameId: game.id,
-      color: null,
-      fen: game.chess.fen(),
-      turn: game.chess.turn(),
-      whiteMs: game.whiteMs,
-      blackMs: game.blackMs,
-      serverTime: Date.now(),
-    });
-
-    // Also send color-specific info
+    // Notify both players individually with their color
     if (white?.socketId) {
       io.to(white.socketId).emit("gameStarted", {
         gameId: game.id,
@@ -100,41 +99,131 @@ function handleFindGame(io, socket, userId = null) {
       });
     }
 
-    console.log(`[Game] ${socket.id} joined game ${game.id}`);
+    console.log(`[Game] Game ${game.id} started with ${white?.socketId} (white) vs ${black?.socketId} (black)`);
   }
 }
 
 /**
  * Handle joining a specific game
  */
-function handleJoinGame(io, socket, gameId, userId = null) {
+async function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = null, incrementSeconds = null, playerColor = null) {
   const effectiveUserId = userId ?? socket.data.userId ?? socket.handshake.auth?.userId ?? null;
   if (effectiveUserId) socket.data.userId = effectiveUserId;
 
-  const game = gameService.joinGame(socket.id, effectiveUserId, gameId);
+  // After a server restart, games may only exist in MongoDB.
+  // Hydrate them before joinGame() falls back to creating a new in-memory game.
+  if (gameId && !gameService.getGame(gameId)) {
+    try {
+      await gameService.hydrateGameFromDb(gameId);
+    } catch (e) {
+      console.error(`[Game] Failed to hydrate game ${gameId}:`, e);
+    }
+  }
+
+  const result = gameService.joinGame(socket.id, effectiveUserId, gameId, timeMinutes, incrementSeconds, playerColor);
   
-  if (!game) {
+  if (!result || !result.game) {
     socket.emit("error", "Cannot join game");
     return;
   }
 
+  const { game, role, reconnected } = result;
+
   // Join socket to the room
   socket.join(gameId);
   
+  // If player reconnected, send them current game state
+  if (reconnected) {
+    const player = game.players.find(p => p.socketId === socket.id);
+    
+    // Calculate elapsed time since last move for the active player to sync clocks
+    const now = Date.now();
+    let adjustedWhiteMs = game.whiteMs;
+    let adjustedBlackMs = game.blackMs;
+    
+    if (game.lastMoveTime && !game.isCompleted) {
+      const elapsed = now - game.lastMoveTime;
+      const turn = game.chess.turn();
+      if (turn === 'w') adjustedWhiteMs = Math.max(0, game.whiteMs - elapsed);
+      else adjustedBlackMs = Math.max(0, game.blackMs - elapsed);
+    }
+
+    socket.emit("gameStarted", {
+      gameId: game.id,
+      color: player.color,
+      fen: game.chess.fen(),
+      turn: game.chess.turn(),
+      whiteMs: adjustedWhiteMs,
+      blackMs: adjustedBlackMs,
+      incrementMs: game.incrementMs,
+      serverTime: now,
+      history: game.historyMoves,
+      movesInTurn: game.movesInTurn,
+    });
+    console.log(`[Game] ${socket.id} reconnected to game ${gameId} as ${player.color}`);
+    return;
+  }
+  
+  // If joining as spectator
+  if (role === 'spectator') {
+    // Calculate elapsed time since last move for the active player
+    const now = Date.now();
+    let adjustedWhiteMs = game.whiteMs;
+    let adjustedBlackMs = game.blackMs;
+    
+    if (game.lastMoveTime && !game.isCompleted) {
+      const elapsed = now - game.lastMoveTime;
+      const activePlayer = game.chess.turn();
+      
+      if (activePlayer === 'w') {
+        adjustedWhiteMs = Math.max(0, game.whiteMs - elapsed);
+      } else if (activePlayer === 'b') {
+        adjustedBlackMs = Math.max(0, game.blackMs - elapsed);
+      }
+    }
+    
+    // Send current game state to spectator with adjusted clock times
+    socket.emit("spectatorJoined", {
+      gameId: game.id,
+      fen: game.chess.fen(),
+      turn: game.chess.turn(),
+      whiteMs: adjustedWhiteMs,
+      blackMs: adjustedBlackMs,
+      incrementMs: game.incrementMs,
+      serverTime: now,
+      history: game.historyMoves,
+      isCompleted: game.isCompleted,
+      movesInTurn: game.movesInTurn,
+      gameResult: game.gameResult,
+      winner: game.winner,
+      whitePlayer: game.players.find(p => p.color === 'w')?.username || 'White',
+      blackPlayer: game.players.find(p => p.color === 'b')?.username || 'Black',
+      isUnbalanced: game.isUnbalanced
+    });
+    console.log(`[Game] ${socket.id} joined game ${gameId} as spectator`);
+    return;
+  }
+  
+  // If only one player (game just created), wait for opponent
+  if (game.players.length === 1) {
+    // Find the player who just joined (it's the current socket)
+    const currentPlayer = game.players.find(p => p.socketId === socket.id);
+    socket.emit("waitingForOpponent", { 
+      gameId: game.id,
+      color: currentPlayer?.color,
+      whiteMs: game.whiteMs,
+      blackMs: game.blackMs,
+      incrementMs: game.incrementMs
+    });
+    console.log(`[Game] ${socket.id} created/joined game ${gameId} as ${currentPlayer?.color}, waiting for opponent`);
+    return;
+  }
+  
+  // Two players - start the game
   const white = game.players.find((p) => p.color === "w");
   const black = game.players.find((p) => p.color === "b");
 
-  // Notify both players in the room
-  io.to(gameId).emit("gameStarted", {
-    gameId: game.id,
-    color: null,
-    fen: game.chess.fen(),
-    turn: game.chess.turn(),
-    whiteMs: game.whiteMs,
-    blackMs: game.blackMs,
-    serverTime: Date.now(),
-  });
-
+  // Notify both players individually with their color
   if (white?.socketId) {
     io.to(white.socketId).emit("gameStarted", {
       gameId: game.id,
@@ -143,6 +232,7 @@ function handleJoinGame(io, socket, gameId, userId = null) {
       turn: game.chess.turn(),
       whiteMs: game.whiteMs,
       blackMs: game.blackMs,
+      incrementMs: game.incrementMs,
       serverTime: Date.now(),
     });
   }
@@ -155,11 +245,12 @@ function handleJoinGame(io, socket, gameId, userId = null) {
       turn: game.chess.turn(),
       whiteMs: game.whiteMs,
       blackMs: game.blackMs,
+      incrementMs: game.incrementMs,
       serverTime: Date.now(),
     });
   }
 
-  console.log(`[Game] ${socket.id} joined game ${gameId}`);
+  console.log(`[Game] Game ${gameId} started with ${white?.socketId} (white) vs ${black?.socketId} (black)`);
 }
 
 /**
@@ -178,6 +269,7 @@ function handleMove(io, socket, gameId, move) {
     move: result.move,
     fen: result.fen,
     turn: result.turn,
+    movesInTurn: result.movesInTurn,
     whiteMs: result.whiteMs,
     blackMs: result.blackMs,
     serverTime: result.serverTime,
@@ -188,12 +280,14 @@ function handleMove(io, socket, gameId, move) {
   // Check if game is over
   const gameOverReason = gameService.isGameOver(gameId);
   if (gameOverReason) {
-    io.to(gameId).emit("gameOver", { reason: gameOverReason });
+    const winner = gameOverReason === 'checkmate' 
+      ? (result.turn === 'w' ? 'black' : 'white')  // If it's white's turn and checkmate, black won
+      : null;
     
-    // Save game asynchronously
-    gameService.saveGameToDb(gameId, gameOverReason).then(() => {
-        gameService.deleteGame(gameId);
-    });
+    io.to(gameId).emit("gameOver", { reason: gameOverReason, winner });
+    
+    // Save game asynchronously (don't delete - keep for spectators)
+    gameService.saveGameToDb(gameId, gameOverReason, winner);
     
     console.log(`[Game] Game ${gameId} over: ${gameOverReason}`);
   }
@@ -205,14 +299,43 @@ function handleMove(io, socket, gameId, move) {
 function handleDisconnect(io, socket) {
   console.log(`[Disconnect] ${socket.id}`);
 
-  // Find and cleanup games with this player
+  // Notify opponents but keep the game for spectators/completed viewing
   for (const [gameId, game] of gameService.games.entries()) {
     if (game.players.some((p) => p.socketId === socket.id)) {
       io.to(gameId).emit("opponentDisconnected");
-      gameService.deleteGame(gameId);
-      console.log(`[Game] Deleted game ${gameId} (player disconnected)`);
+      console.log(`[Game] Player disconnected from ${gameId}, game preserved for spectators`);
     }
   }
+}
+
+/**
+ * Handle resignation
+ */
+function handleResign(io, socket, gameId) {
+  const game = gameService.getGame(gameId);
+  if (!game) {
+    socket.emit("error", "Game not found");
+    return;
+  }
+
+  const player = game.players.find((p) => p.socketId === socket.id);
+  if (!player) {
+    socket.emit("error", "Player not in game");
+    return;
+  }
+
+  const winner = player.color === "w" ? "black" : "white";
+  
+  io.to(gameId).emit("gameOver", { 
+    reason: "resignation",
+    winner: winner,
+    resignedColor: player.color
+  });
+
+  // Save game asynchronously (don't delete - keep for spectators)
+  gameService.saveGameToDb(gameId, "resignation", winner);
+
+  console.log(`[Game] ${player.color} resigned in game ${gameId}`);
 }
 
 module.exports = { registerSocketHandlers };

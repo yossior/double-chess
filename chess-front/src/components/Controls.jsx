@@ -1,46 +1,43 @@
 /**
- * Simple controls UI. IMPORTANT: Controls never imports or uses the online hook.
- * It only asks the parent to switch to online mode (so the OnlineBoard can mount).
+ * Modern controls UI for game modes - simplified to mode buttons only
+ * Settings are now in modals (PlayBot, PlayFriend)
  */
-export default function Controls({ mode, onFindOnline, onExitOnline, skillLevel, setSkillLevel, resetGame }) {
+export default function Controls({ 
+  onSelectMode,
+  onShowRules,
+  disabled = false
+}) {
 
   return (
-    <div className="controls flex-col gap-3 items-center mb-4">
-      <ul className="grid w-full gap-6 md:grid-cols-2">
-        <li onClick={() => onExitOnline && onExitOnline()}>
-          <input type="radio" id="hosting-small" name="hosting" value="hosting-small" className="hidden peer" required defaultChecked />
-          <label className="inline-flex items-center justify-between w-full p-5 text-gray-500 bg-white border border-gray-200 rounded-lg cursor-pointer dark:hover:text-gray-300 dark:border-gray-700 dark:peer-checked:text-blue-500 peer-checked:border-blue-600 dark:peer-checked:border-blue-600 peer-checked:text-blue-600 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700">
-            <div className="block">
-              <div className="w-full text-lg font-semibold">Play Bot</div>
-            </div>
-            
-          </label>
-        </li>
-        <li onClick={() => onFindOnline && onFindOnline()}>
-          <input type="radio" id="hosting-big" name="hosting" value="hosting-big" className="hidden peer" required />
-          <label className="text-center inline-flex items-center justify-between w-full p-5 text-gray-500 bg-white border border-gray-200 rounded-lg cursor-pointer dark:hover:text-gray-300 dark:border-gray-700 dark:peer-checked:text-blue-500 peer-checked:border-blue-600 dark:peer-checked:border-blue-600 peer-checked:text-blue-600 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700">
-            <div className="block">
-              <div className="w-full text-lg font-semibold">Play Online</div>
-            </div>
-            
-          </label>
-        </li>
-      </ul>
-      {mode === "local" && (
-        <div className="flex gap-1 items-center m-3">
-          <label className="flex gap-0.5 items-center">
-            Bot Strength ({skillLevel})
-            <input
-              type="range"
-              min={0}
-              max={10}
-              value={skillLevel}
-              onChange={(e) => setSkillLevel(Number(e.target.value))}
-            />
-          </label>
-          <button onClick={resetGame}>Reset</button>
-        </div>
-      )}
+    <div className="controls flex-col gap-2 md:gap-3 items-center mb-2 md:mb-4">
+      {/* Mode Selection */}
+      <div className="w-full space-y-3">
+        <button
+          onClick={() => onSelectMode && onSelectMode('local')}
+          disabled={disabled}
+          className="w-full p-4 rounded-xl font-semibold text-base transition-all bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 shadow-lg hover:shadow-xl hover:shadow-blue-500/50 transform hover:scale-[1.02] active:scale-[0.98] border border-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-lg"
+        >
+          🤖 Play Bot
+        </button>
+        <button
+          onClick={() => onSelectMode && onSelectMode('friend')}
+          disabled={disabled}
+          className="w-full p-4 rounded-xl font-semibold text-base transition-all bg-gradient-to-r from-purple-600 to-purple-700 text-white hover:from-purple-700 hover:to-purple-800 shadow-lg hover:shadow-xl hover:shadow-purple-500/50 transform hover:scale-[1.02] active:scale-[0.98] border border-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-lg"
+        >
+          👥 Play a Friend
+        </button>
+      </div>
+
+      {/* Utility Buttons */}
+      <div className="w-full flex gap-2 mt-4">
+        <button
+          onClick={() => onShowRules?.()}
+          className="flex-1 p-3 rounded-lg font-semibold text-sm transition-all bg-gradient-to-r from-green-600 to-green-700 text-white hover:from-green-700 hover:to-green-800 shadow-lg hover:shadow-xl hover:shadow-green-500/50 transform hover:scale-[1.02] active:scale-[0.98] border border-green-500/20"
+          title="View game rules"
+        >
+          📖 Rules
+        </button>
+      </div>
     </div>
   );
 }
