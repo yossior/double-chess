@@ -52,6 +52,7 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
   const [isConnected, setIsConnected] = useState(false);
   const [isSpectator, setIsSpectator] = useState(false);
   const [opponentNames, setOpponentNames] = useState({ white: 'White', black: 'Black' });
+  const [error, setError] = useState(null); // Track connection/game errors
   const initialTime = 300; // Default initial time in seconds
 
   /**
@@ -85,16 +86,32 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
   onGameOverRef.current = onGameOver;
 
   useEffect(() => {
-    // Close any old socket (defensive, useful for HMR)
-    if (socketRef.current) {
-      try { socketRef.current.close(); } catch (e) { console.warn('socket close error', e); }
-    }
+    // Reuse existing connected socket (handles React Strict Mode remount)
+    // But we still need to set up event handlers each time
+    let socket = socketRef.current;
+    const isReusingSocket = socket?.connected;
+    console.log('[Socket] useEffect start ts:', Date.now());
+    
+    if (isReusingSocket) {
+      console.log("♻️ Reusing existing socket connection:", socket.id, 'ts:', Date.now());
+      setIsConnected(true);
+    } else {
+      // Close any old disconnected socket (defensive, useful for HMR)
+      if (socket && !socket.connected) {
+        try { socket.close(); } catch (e) { console.warn('socket close error', e); }
+      }
 
-    const socket = io("http://localhost:5001", {
-      reconnection: true,
-      transports: ['websocket', 'polling'],
-    });
-    socketRef.current = socket;
+      console.log('[Socket] creating IO socket at ts:', Date.now());
+      socket = io("http://localhost:5001", {
+        reconnection: true,
+        reconnectionDelay: 500,      // Start with 500ms delay (default is 1000ms)
+        reconnectionDelayMax: 2000,  // Cap at 2 seconds (default is 5000ms)
+        timeout: 5000,               // Connection timeout 5 seconds (default is 20000ms)
+        transports: ['polling', 'websocket'], // Try polling first for faster initial connection
+        upgrade: true,               // Upgrade to websocket after polling connects
+      });
+      socketRef.current = socket;
+    }
 
     socket.on("connect", () => {
       console.log("✅ Socket connected:", socket.id);
@@ -347,18 +364,47 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
 
     socket.on("error", (msg) => {
       console.error("Server error:", msg);
+      
+      // Handle specific error codes
+      if (msg?.code === 'GAME_NOT_FOUND') {
+        setWaiting(false);
+        setGameId(null);
+        gameIdRef.current = null;
+        setError({ code: 'GAME_NOT_FOUND', message: 'Game not found. It may have been deleted or never existed.' });
+      }
     });
 
-    // cleanup: fully close the socket so reconnection stops
+    // Cleanup: remove listeners and optionally close socket
     return () => {
-      console.log("🧹 useOnlineGame cleanup: closing socket");
-      try {
-        socket.close();
-      } catch (e) {
-        console.warn("Error closing socket", e);
-      }
-      socketRef.current = null;
-      setIsConnected(false);
+      console.log("🧹 useOnlineGame cleanup");
+      
+      // Remove all listeners we added to prevent duplicates on remount
+      socket.off("connect");
+      socket.off("disconnect");
+      socket.off("connect_error");
+      socket.off("waitingForOpponent");
+      socket.off("gameStarted");
+      socket.off("spectatorJoined");
+      socket.off("moveMade");
+      socket.off("opponentMove");
+      socket.off("gameOver");
+      socket.off("error");
+      
+      // Delay socket close to handle React Strict Mode double-mounting
+      // In Strict Mode, the component unmounts and remounts immediately
+      setTimeout(() => {
+        // Only close if this socket is still the current one (wasn't replaced by remount)
+        if (socketRef.current === socket && !socket.connected) {
+          console.log("🧹 useOnlineGame: closing stale socket");
+          try {
+            socket.close();
+          } catch (e) {
+            console.warn("Error closing socket", e);
+          }
+          socketRef.current = null;
+          setIsConnected(false);
+        }
+      }, 200); // Small delay to allow React Strict Mode remount
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -451,6 +497,11 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     hasResignedRef.current = false;
   }, []);
 
+  // Clear error state
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
   // Memoize return object to prevent infinite dependency loops in useEffect
   return useMemo(() => ({
     socketRef,
@@ -460,10 +511,12 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
     isConnected,
     isSpectator,
     opponentNames,
+    error,
     findOnlineGame,
     joinSpecificGame,
     sendMoveOnline,
     resign,
     disconnect,
-  }), [waiting, gameId, playerColor, isConnected, isSpectator, opponentNames, findOnlineGame, joinSpecificGame, sendMoveOnline, resign, disconnect]);
+    clearError,
+  }), [waiting, gameId, playerColor, isConnected, isSpectator, opponentNames, error, findOnlineGame, joinSpecificGame, sendMoveOnline, resign, disconnect, clearError]);
 }

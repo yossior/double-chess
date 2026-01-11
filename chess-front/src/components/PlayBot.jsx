@@ -1,8 +1,7 @@
 import { useState } from 'react';
 
-export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, initialPlayerColor = 'w', initialIsUnbalanced = true }) {
+export default function PlayBot({ onStartGame, onBack, initialPlayerColor = 'w', initialIsUnbalanced = true }) {
   const [selectedColor, setSelectedColor] = useState(initialPlayerColor);
-  const [skillLevel, setSkillLevel] = useState(initialSkillLevel);
   const [isUnbalanced, setIsUnbalanced] = useState(initialIsUnbalanced);
   const [isTimed, setIsTimed] = useState(false);
   const [timeMinutes, setTimeMinutes] = useState(3);
@@ -11,7 +10,7 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
   const handleStartGame = () => {
     onStartGame({
       color: selectedColor,
-      skillLevel,
+      skillLevel: 2, // Fixed level
       isUnbalanced,
       isTimed,
       timeMinutes: isTimed ? timeMinutes : null,
@@ -137,28 +136,6 @@ export default function PlayBot({ onStartGame, onBack, initialSkillLevel = 2, in
               </div>
             </div>
           )}
-        </div>
-
-        {/* Bot Strength */}
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <label className="text-xs font-medium text-slate-300">Bot Strength</label>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {[1, 2, 3].map((level) => (
-              <button
-                key={level}
-                onClick={() => setSkillLevel(level)}
-                className={`py-2 px-2 rounded-lg text-sm font-medium transition-all ${
-                  skillLevel === level
-                    ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg border border-blue-500/30'
-                    : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 border border-slate-600/30'
-                }`}
-              >
-                {level === 1 ? 'Easy' : level === 2 ? 'Normal' : 'Hard'}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Start Button */}

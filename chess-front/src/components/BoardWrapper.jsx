@@ -73,11 +73,13 @@ export default function BoardWrapper() {
         
         if (gameIdFromUrl) {
             // Joining via shared link (URL takes priority over localStorage)
-            console.log('[BoardWrapper] Found game ID in URL:', gameIdFromUrl);
+            console.log('[BoardWrapper] Found game ID in URL:', gameIdFromUrl, 'ts:', Date.now());
             setMode('friend');
             setShowPlayFriend(false);
             setPendingGameId(gameIdFromUrl);
             setGameStarted(true);
+            // timestamp for diagnostics: when mount discovered the gameId
+            console.log('[BoardWrapper] mount discovery timestamp:', Date.now());
             return; // Don't check localStorage
         }
 
@@ -151,11 +153,9 @@ export default function BoardWrapper() {
     useEffect(() => {
         console.log('[BoardWrapper] Join effect - pendingGameId:', pendingGameId, 'pendingGameSettings:', pendingGameSettings?.gameId, 'connected:', online?.isConnected, 'loading:', loading);
         
-        // Wait for user to finish loading before attempting to join
-        if (loading) {
-            console.log('[BoardWrapper] Waiting for user to load...');
-            return;
-        }
+        // NOTE: We do NOT wait for user to load before joining friend games.
+        // The user ID is optional - games work for guests too.
+        // This prevents 10+ second delays when the /api/users/me request is slow.
         
         // MAIN PATH: Join an online friend game (either creating new or resuming)
         if (pendingGameId && online?.isConnected) {
@@ -205,7 +205,9 @@ export default function BoardWrapper() {
                 }
             }
             
-            console.log('[BoardWrapper] Joining game:', pendingGameId, 'color:', color, 'time:', timeMinutes);
+            console.log('[BoardWrapper] Joining game:', pendingGameId, 'color:', color, 'time:', timeMinutes, 'ts:', Date.now());
+            // diagnostic: timestamp when issuing join request
+            console.log('[BoardWrapper] join request timestamp:', Date.now());
             online.joinSpecificGame(pendingGameId, user?.id, timeMinutes, incrementSeconds, color);
             // NOTE: Don't clear pendingGameId here - it will be cleared when gameStarted/spectatorJoined is received
             return;
@@ -250,7 +252,7 @@ export default function BoardWrapper() {
             }
             setPendingGameSettings(null);
         }
-    }, [pendingGameId, pendingGameSettings, online.isConnected, online.joinSpecificGame, user?.id, chess.chessGame, chess.setChessPosition, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, chess.setMovesInTurn, isBotGameTimed, clock.syncFromServer, loading]);
+    }, [pendingGameId, pendingGameSettings, online.isConnected, online.joinSpecificGame, user?.id, chess.chessGame, chess.setChessPosition, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, chess.setMovesInTurn, isBotGameTimed, clock.syncFromServer]);
 
     // Clear pendingGameId and reset join tracking when the game response is received
     useEffect(() => {
@@ -261,6 +263,24 @@ export default function BoardWrapper() {
             joinAttemptedRef.current = null;
         }
     }, [pendingGameId, online?.gameId]);
+
+    // Handle game not found errors - reset state and show message
+    useEffect(() => {
+        if (online?.error?.code === 'GAME_NOT_FOUND') {
+            console.log('[BoardWrapper] Game not found error, resetting state');
+            setPendingGameId(null);
+            setPendingGameSettings(null);
+            joinAttemptedRef.current = null;
+            setGameStarted(false);
+            setMode('local');
+            showToast('Game not found. It may have been deleted or expired.');
+            // Clear the URL if it had a game ID
+            if (window.location.pathname.startsWith('/game/')) {
+                window.history.replaceState({}, '', '/');
+            }
+            online.clearError();
+        }
+    }, [online?.error, online?.clearError, showToast]);
 
     // Set gameStarted when entering a game mode
     useEffect(() => {
@@ -659,7 +679,6 @@ export default function BoardWrapper() {
                         <PlayBot 
                             onStartGame={handleStartBotGame} 
                             onBack={() => setShowPlayBot(false)}
-                            initialSkillLevel={skillLevel}
                             initialPlayerColor={playerColor}
                             initialIsUnbalanced={isUnbalanced}
                         />

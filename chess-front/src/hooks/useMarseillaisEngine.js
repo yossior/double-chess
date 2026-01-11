@@ -33,11 +33,12 @@ export function useMarseillaisEngine(
 
     async function init() {
       try {
-        worker = new Worker(
-          new URL('../workers/marseillais.worker.js', import.meta.url),
-          { type: 'module' }
-        );
+        const workerUrl = new URL('../workers/marseillais-engine.worker.js', import.meta.url);
+        
+        worker = new Worker(workerUrl, { type: 'module' });
         workerRef.current = worker;
+
+        console.log('[useMarseillaisEngine] Initialized worker');
 
         worker.onmessage = e => {
           const { type, move, requestId, error } = e.data;

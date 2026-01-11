@@ -9,21 +9,30 @@ export const UserProvider = ({ children }) => {
 
   useEffect(() => {
     if (token) {
-      // Verify token and get user info
+      // Verify token and get user info with a 3-second timeout to prevent blocking
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
       fetch('http://localhost:5001/api/users/me', {
         headers: {
           'Authorization': `Bearer ${token}`
-        }
+        },
+        signal: controller.signal
       })
       .then(res => {
+        clearTimeout(timeoutId);
         if (res.ok) return res.json();
         throw new Error('Invalid token');
       })
       .then(userData => {
         setUser(userData);
       })
-      .catch(() => {
-        logout();
+      .catch((err) => {
+        clearTimeout(timeoutId);
+        // Only logout on non-abort errors
+        if (err.name !== 'AbortError') {
+          logout();
+        }
       })
       .finally(() => setLoading(false));
     } else {

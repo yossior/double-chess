@@ -29,6 +29,7 @@ function registerSocketHandlers(io, socket) {
   });
 
   socket.on("joinGame", async ({ gameId, userId, timeMinutes, incrementSeconds, playerColor } = {}) => {
+    console.log(`[JoinGame] event received: socket=${socket.id} gameId=${gameId} ts=${Date.now()}`);
     await handleJoinGame(io, socket, gameId, userId, timeMinutes, incrementSeconds, playerColor);
   });
 
@@ -110,14 +111,47 @@ async function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = n
   const effectiveUserId = userId ?? socket.data.userId ?? socket.handshake.auth?.userId ?? null;
   if (effectiveUserId) socket.data.userId = effectiveUserId;
 
+  // Track if this is a join attempt for a game that doesn't exist in memory
+  const gameNotInMemory = gameId && !gameService.getGame(gameId);
+  let hydratedFromDb = false;
+
   // After a server restart, games may only exist in MongoDB.
   // Hydrate them before joinGame() falls back to creating a new in-memory game.
-  if (gameId && !gameService.getGame(gameId)) {
-    try {
-      await gameService.hydrateGameFromDb(gameId);
-    } catch (e) {
-      console.error(`[Game] Failed to hydrate game ${gameId}:`, e);
+  if (gameNotInMemory) {
+    // Only attempt to hydrate from DB if mongoose is connected - otherwise skip to avoid blocking on timeouts
+    const mongoose = require('mongoose');
+    if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+      console.log(`[JoinGame] skipping hydrate for ${gameId} - DB not connected ts=${Date.now()}`);
+    } else {
+      console.log(`[JoinGame] hydrate check start for ${gameId} ts=${Date.now()}`);
+      try {
+        const hydratedGame = await gameService.hydrateGameFromDb(gameId);
+        hydratedFromDb = !!hydratedGame;
+        console.log(`[JoinGame] hydrate complete for ${gameId}, found: ${hydratedFromDb} ts=${Date.now()}`);
+      } catch (e) {
+        console.error(`[Game] Failed to hydrate game ${gameId}:`, e);
+      }
     }
+  }
+
+  // If user provided specific game ID that doesn't exist in memory or DB, and they're not providing
+  // time/color settings (meaning they're trying to JOIN an existing game, not CREATE one),
+  // allow creation only if they're explicitly creating a new friend game.
+  // 
+  // Scenarios:
+  // 1. First player creating game: timeMinutes is set → isCreatingNewGame = true → allow
+  // 2. Second player joining via link: settings are null/undefined, game exists in memory → proceed to joinGame
+  // 3. Second player joining via link: settings are null/undefined, game NOT in memory but in DB → hydrated → proceed
+  // 4. Browsing completed game: settings are null/undefined, game in DB → hydrated → proceed as spectator
+  // 5. Invalid/old link: settings are null/undefined, game not anywhere → error
+  //
+  // We only reject if: game wasn't in memory, wasn't hydrated from DB, AND no creation settings provided
+  const hasCreationSettings = (timeMinutes != null && timeMinutes !== undefined);
+  if (gameNotInMemory && !hydratedFromDb && !hasCreationSettings) {
+    // Game doesn't exist anywhere and no settings to create it - return error
+    socket.emit("error", { message: "Game not found", code: "GAME_NOT_FOUND" });
+    console.log(`[JoinGame] Game ${gameId} not found in memory or DB, no creation settings, rejecting join`);
+    return;
   }
 
   const result = gameService.joinGame(socket.id, effectiveUserId, gameId, timeMinutes, incrementSeconds, playerColor);
@@ -298,6 +332,13 @@ function handleMove(io, socket, gameId, move) {
  */
 function handleDisconnect(io, socket) {
   console.log(`[Disconnect] ${socket.id}`);
+
+  // If the server is shutting down, avoid emitting game-level disconnect
+  // events or logging them as they are expected and noisy during shutdown.
+  if (io && io.isShuttingDown) {
+    console.log(`[Disconnect] ${socket.id} (server shutting down) - ignoring game disconnect handling`);
+    return;
+  }
 
   // Notify opponents but keep the game for spectators/completed viewing
   for (const [gameId, game] of gameService.games.entries()) {

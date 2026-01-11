@@ -100,6 +100,10 @@ function startServer() {
 // ============================================
 process.on("SIGINT", () => {
   console.log("\n🛑 Shutting down gracefully...");
+  // Inform socket handlers that we're shutting down so they can avoid
+  // emitting opponentDisconnected / logging noisy messages
+  if (io) io.isShuttingDown = true;
+
   server.close(() => {
     console.log("✅ Server closed");
     Promise.resolve()
