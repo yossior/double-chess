@@ -11,6 +11,7 @@
     "dev": "concurrently \"npm run dev --host --prefix chess-server\" \"npm run dev --prefix chess-front\"",
     "build": "npm run build --prefix chess-front",
     "start": "npm --prefix chess-server start",
+    "check-env": "node check-env.js",
     "postinstall": ""
   },
   "devDependencies": {

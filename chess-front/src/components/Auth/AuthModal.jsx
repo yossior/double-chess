@@ -20,7 +20,7 @@ export default function AuthModal({ onClose }) {
       : { email, password, username };
 
     try {
-      const res = await fetch(`http://localhost:5001${endpoint}`, {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -41,7 +41,7 @@ export default function AuthModal({ onClose }) {
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
-      const res = await fetch('http://localhost:5001/api/users/google', {
+      const res = await fetch('/api/users/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: credentialResponse.credential })

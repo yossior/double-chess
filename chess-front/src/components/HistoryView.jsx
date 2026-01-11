@@ -8,7 +8,7 @@ export default function HistoryView() {
 
   useEffect(() => {
     if (user && token) {
-      fetch(`http://localhost:5001/api/users/${user.id}/games`, {
+      fetch(`/api/users/${user.id}/games`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }

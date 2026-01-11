@@ -102,7 +102,8 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
       }
 
       console.log('[Socket] creating IO socket at ts:', Date.now());
-      socket = io("http://localhost:5001", {
+      // Connect to same origin (no hardcoded host) so it works on Render and locally
+      socket = io(undefined, {
         reconnection: true,
         reconnectionDelay: 500,      // Start with 500ms delay (default is 1000ms)
         reconnectionDelayMax: 2000,  // Cap at 2 seconds (default is 5000ms)

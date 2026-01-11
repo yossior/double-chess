@@ -13,7 +13,7 @@ export const UserProvider = ({ children }) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
       
-      fetch('http://localhost:5001/api/users/me', {
+      fetch('/api/users/me', {
         headers: {
           'Authorization': `Bearer ${token}`
         },
