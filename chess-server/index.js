@@ -22,6 +22,13 @@ const io = new Server(server, { cors: { origin: "*" } });
 // ============================================
 // MIDDLEWARE
 // ============================================
+// Enable cross-origin isolation for SharedArrayBuffer usage (COOP/COEP)
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  next();
+});
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -41,7 +48,14 @@ app.use("/api/users", userRoutes);
 
 // Health check
 app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok", timestamp: Date.now() });
+  res.status(200).json({ 
+    status: "ok", 
+    timestamp: Date.now(),
+    port: PORT,
+    nodeEnv: process.env.NODE_ENV,
+    mongoConnected: mongoose.connection.readyState === 1,
+    socketIORunning: io !== undefined
+  });
 });
 
 // SPA fallback - serve index.html for all non-API routes (Express v5-safe)
@@ -64,6 +78,12 @@ io.on("connection", (socket) => {
 // DATABASE CONNECTION & SERVER START
 // ============================================
 const PORT = process.env.PORT || 5001;
+
+console.log("🔧 Environment Configuration:");
+console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+console.log(`   PORT: ${PORT}`);
+console.log(`   MONGO_URI: ${process.env.MONGO_URI ? '✓ Set' : '✗ Not set'}`);
+console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '✓ Set' : '✗ Not set'}`);
 
 mongoose
   .connect(process.env.MONGO_URI)
@@ -88,10 +108,13 @@ function startServer() {
     }
   });
 
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n${'='.repeat(50)}`);
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`📝 API: http://localhost:${PORT}/api`);
     console.log(`🎮 WebSocket: ws://localhost:${PORT}`);
+    console.log(`🏥 Health: http://localhost:${PORT}/health`);
+    console.log(`${'='.repeat(50)}\n`);
   });
 }
 
