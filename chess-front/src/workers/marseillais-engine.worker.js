@@ -216,16 +216,25 @@ function evaluateTurn(chess, turn, ourColor, debug = false) {
 
 /**
  * Quick pre-filter score (for sorting candidates)
- * Positional score + hanging penalty
+ * Material gain from captures + positional score + hanging penalty
  */
 function quickEval(chess, turn, ourColor) {
+  // FIRST: Calculate material gained by OUR turn's captures
+  // This ensures queen captures etc. are prioritized in candidate selection
+  let captureGain = 0;
+  for (const m of turn) {
+    if (m.captured) {
+      captureGain += PIECE_VALUES[m.captured] || 0;
+    }
+  }
+  
   playTurn(chess, turn);
   if (chess.isCheckmate()) {
     chess.undoTurn();
     return 100000;
   }
   
-  // Use ONLY positional evaluation, not material. This prevents captures from dominating the candidate list
+  // Positional evaluation (PST only)
   const board = chess.board();
   let score = 0;
   
@@ -255,7 +264,7 @@ function quickEval(chess, turn, ourColor) {
     }
   }
   
-  // Apply penalty
+  // Apply penalty for hanging pieces
   if (ourColor === 'w') {
     score -= maxCapture;
   } else {
@@ -263,7 +272,10 @@ function quickEval(chess, turn, ourColor) {
   }
   
   chess.undoTurn();
-  return ourColor === 'w' ? score : -score;
+  
+  // Add capture gain to ensure capturing moves rank high
+  const posScore = ourColor === 'w' ? score : -score;
+  return posScore + captureGain;
 }
 
 /**
