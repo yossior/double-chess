@@ -38,7 +38,7 @@ export default function RulesModal({ onClose }) {
               <ul className="text-slate-300 space-y-2">
                 <li className="flex gap-3">
                   <span className="text-blue-400 shrink-0">•</span>
-                  <span>Each turn consists of <strong>2 consecutive moves</strong> by the same player</span>
+                  <span>Each turn consists of <strong>2 consecutive moves</strong> by the same player.</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="text-blue-400 shrink-0">•</span>

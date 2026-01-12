@@ -32,7 +32,10 @@ export default function About({ onClose }) {
               {/* <h3 className="font-medium text-slate-100 mb-2">History</h3> */}
               <div className="space-y-3 text-slate-400">
                 <p>
-                  This an open-source project designed to bring back a varient of chess which seems to disappear in the online era. Double-Move Chess, also known as Marseillais Chess, emerged in the early 20th century as chess enthusiasts sought to create more dynamic and tactical versions of the classical game. The fundamental rule modification - allowing two consecutive moves per turn - dramatically altered the strategic landscape of chess, creating a game where aggressive play and tactical alertness became paramount.
+                  This an open-source project designed to bring back a varient of chess which seems to be forgotten in the online era.
+                </p>
+                <p>
+                  Double-Move Chess, also known as Marseillais Chess, emerged in the early 20th century as chess enthusiasts sought to create more dynamic and tactical versions of the classical game. The fundamental rule modification - allowing two consecutive moves per turn - dramatically altered the strategic landscape of chess, creating a game where aggressive play and tactical alertness became paramount.
                 </p>
                 <p className="pt-2">
                   <a
