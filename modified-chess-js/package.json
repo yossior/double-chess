@@ -1,7 +1,0 @@
-{
-  "name": "chess.js",
-  "version": "1.4.0",
-  "main": "cjs/chess.js",
-  "module": "esm/chess.js",
-  "types": "types/chess.d.ts"
-}

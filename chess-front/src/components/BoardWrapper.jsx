@@ -14,7 +14,6 @@ import { useOnlineGame } from "../hooks/useOnlineGame";
 import ClockView from "./ClockView";
 import useClock from "../hooks/useClock";
 import MoveHistory from "./MoveHistory";
-import { useUser } from "../context/UserContext";
 import { logBotGameStarted, logGameCompleted } from "../utils/stats";
 
 export default function BoardWrapper() {
@@ -37,7 +36,7 @@ export default function BoardWrapper() {
     const [isBotGameTimed, setIsBotGameTimed] = useState(false);
     const [botTimeMinutes, setBotTimeMinutes] = useState(3);
     const [botIncrementSeconds, setBotIncrementSeconds] = useState(2);
-    const { user, loading } = useUser();
+    const [currentBotGameId, setCurrentBotGameId] = useState(null); // Track current bot game ID for stats
     const { toast, showToast } = useToast();
 
     // The state controlling which move is shown (null = Live)
@@ -104,55 +103,14 @@ export default function BoardWrapper() {
             return; // Don't check for bot game
         }
 
-        // Third priority: check if there's an active bot game in progress (for refresh recovery)
-        const activeBotGame = localStorage.getItem('chess_active_bot_game');
-        console.log('[BoardWrapper] Checking for active bot game:', activeBotGame ? 'Found' : 'Not found');
-        
-        if (activeBotGame) {
-            try {
-                const botGameInfo = JSON.parse(activeBotGame);
-                console.log('[BoardWrapper] Parsed bot game info:', {
-                    skillLevel: botGameInfo.skillLevel,
-                    isUnbalanced: botGameInfo.isUnbalanced,
-                    playerColor: botGameInfo.playerColor,
-                    isTimed: botGameInfo.isTimed,
-                    moveCount: botGameInfo.moveHistory?.length || 0,
-                    fen: botGameInfo.fen
-                });
-                setMode('local');
-                setShowPlayBot(false);
-                setSkillLevel(botGameInfo.skillLevel || 2);
-                setIsUnbalanced(botGameInfo.isUnbalanced !== false); // Default to true
-                setIsBotGameTimed(botGameInfo.isTimed || false);
-                setBotTimeMinutes(botGameInfo.timeMinutes || 3);
-                setBotIncrementSeconds(botGameInfo.incrementSeconds || 2);
-                setPlayerColor(botGameInfo.playerColor || 'w');
-                
-                // Store these for restoration after chess is initialized
-                setPendingGameSettings({
-                    isBotGame: true,
-                    fen: botGameInfo.fen,
-                    moveHistory: botGameInfo.moveHistory || [],
-                    movesInTurn: botGameInfo.movesInTurn || 0,
-                    whiteMs: botGameInfo.whiteMs,
-                    blackMs: botGameInfo.blackMs,
-                });
-                
-                setGameStarted(true);
-                console.log('[BoardWrapper] Bot game settings prepared for restoration');
-            } catch (e) {
-                console.error('Failed to parse active bot game info', e);
-                localStorage.removeItem('chess_active_bot_game');
-            }
-        } else {
-            console.log('[BoardWrapper] No active game to restore');
-        }
+        // Bot games are NOT persisted - page reload resets the game
+        console.log('[BoardWrapper] No active game to restore');
     }, []);
 
     // Join game when online connection is ready and we have a pending game ID
     // Also restore bot games from localStorage
     useEffect(() => {
-        console.log('[BoardWrapper] Join effect - pendingGameId:', pendingGameId, 'pendingGameSettings:', pendingGameSettings?.gameId, 'connected:', online?.isConnected, 'loading:', loading);
+        console.log('[BoardWrapper] Join effect - pendingGameId:', pendingGameId, 'pendingGameSettings:', pendingGameSettings?.gameId, 'connected:', online?.isConnected);
         
         // NOTE: We do NOT wait for user to load before joining friend games.
         // The user ID is optional - games work for guests too.
@@ -209,7 +167,7 @@ export default function BoardWrapper() {
             console.log('[BoardWrapper] Joining game:', pendingGameId, 'color:', color, 'time:', timeMinutes, 'ts:', Date.now());
             // diagnostic: timestamp when issuing join request
             console.log('[BoardWrapper] join request timestamp:', Date.now());
-            online.joinSpecificGame(pendingGameId, user?.id, timeMinutes, incrementSeconds, color);
+            online.joinSpecificGame(pendingGameId, null, timeMinutes, incrementSeconds, color);
             // NOTE: Don't clear pendingGameId here - it will be cleared when gameStarted/spectatorJoined is received
             return;
         }
@@ -253,7 +211,7 @@ export default function BoardWrapper() {
             }
             setPendingGameSettings(null);
         }
-    }, [pendingGameId, pendingGameSettings, online.isConnected, online.joinSpecificGame, user?.id, chess.chessGame, chess.setChessPosition, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, chess.setMovesInTurn, isBotGameTimed, clock.syncFromServer]);
+    }, [pendingGameId, pendingGameSettings, online.isConnected, online.joinSpecificGame, chess.chessGame, chess.setChessPosition, chess.setMoveHistory, chess.setHistoryIndex, chess.setTurn, chess.setMovesInTurn, isBotGameTimed, clock.syncFromServer]);
 
     // Clear pendingGameId and reset join tracking when the game response is received
     useEffect(() => {
@@ -384,8 +342,8 @@ export default function BoardWrapper() {
         
         // Log timeout for bot games (friend games are logged server-side)
         if (mode === 'local') {
-            logGameCompleted(null, 'timeout', winner, true);
-            localStorage.removeItem('chess_active_bot_game');
+            logGameCompleted(currentBotGameId, 'timeout', winner, true);
+            setCurrentBotGameId(null);
         }
         
         clock.pause?.();
@@ -441,8 +399,10 @@ export default function BoardWrapper() {
             clock.start('w');
         }
         
-        // Log bot game started for analytics
-        logBotGameStarted(settings.skillLevel, shortColor);
+        // Log bot game started for analytics and capture the game ID
+        logBotGameStarted(settings.skillLevel, shortColor).then(gameId => {
+            setCurrentBotGameId(gameId);
+        });
     }
 
     function handleStartFriendGame(settings) {
@@ -494,69 +454,16 @@ export default function BoardWrapper() {
             clock.pause?.();
             
             // Log bot game resignation for analytics
-            logGameCompleted(null, 'resignation', winner, true);
+            logGameCompleted(currentBotGameId, 'resignation', winner, true);
             
-            // Clear bot game from storage when game ends
-            if (typeof window !== 'undefined') {
-                localStorage.removeItem('chess_active_bot_game');
-            }
+            // Clear bot game ID
+            setCurrentBotGameId(null);
         }
         // Don't reset - keep the final position visible
     }
 
-    // Save bot game state to localStorage whenever game state changes
-    // Use a ref to debounce saves (don't save on every clock tick)
-    const saveTimeoutRef = useRef(null);
-    useEffect(() => {
-        if (mode !== 'local') return;
-        if (!gameStarted) return;
-        if (!chess?.chessGame) return;
-        
-        // Don't save if game is over (user will start fresh next time)
-        if (gameOverInfo) {
-            if (typeof window !== 'undefined') {
-                localStorage.removeItem('chess_active_bot_game');
-            }
-            return;
-        }
-        
-        // Debounce saves to every 1 second to avoid excessive localStorage writes
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-        }
-        
-        saveTimeoutRef.current = setTimeout(() => {
-            try {
-                console.log('[BoardWrapper] Saving bot game state...');
-                const botGameState = {
-                    skillLevel,
-                    isUnbalanced,
-                    playerColor,
-                    isTimed: isBotGameTimed,
-                    timeMinutes: botTimeMinutes,
-                    incrementSeconds: botIncrementSeconds,
-                    fen: chess.chessGame.fen(),
-                    moveHistory: chess.moveHistory,
-                    movesInTurn: chess.movesInTurn,
-                    whiteMs: clock.whiteMs,
-                    blackMs: clock.blackMs,
-                };
-                
-                if (typeof window !== 'undefined') {
-                    localStorage.setItem('chess_active_bot_game', JSON.stringify(botGameState));
-                    console.log('[BoardWrapper] Bot game saved, moveHistory length:', botGameState.moveHistory.length);
-                }
-            } catch (e) {
-                console.error('[BoardWrapper] Failed to save bot game state:', e);
-            }
-        }, 1000);
-        
-        return () => {
-            if (saveTimeoutRef.current) {
-                clearTimeout(saveTimeoutRef.current);
-            }
-        };
-    }, [mode, gameStarted, chess?.chessGame?.fen(), chess?.moveHistory?.length, chess?.movesInTurn, playerColor, skillLevel, isUnbalanced, isBotGameTimed, botTimeMinutes, botIncrementSeconds, gameOverInfo, clock.whiteMs, clock.blackMs]);;
+    // Bot games are NOT persisted - page reload resets the game
+    // (Friend games are still persisted via chess_active_game)
 
     // Game over modal handler for local checkmates (not emitted via socket)
     useEffect(() => {
@@ -576,10 +483,10 @@ export default function BoardWrapper() {
             clock.pause?.();
             
             // Log bot game completion for analytics
-            logGameCompleted(null, reason, winner, true);
+            logGameCompleted(currentBotGameId, reason, winner, true);
             
-            // Clear the active bot game from localStorage since it's finished
-            localStorage.removeItem('chess_active_bot_game');
+            // Clear the bot game ID since it's finished
+            setCurrentBotGameId(null);
         }
     }, [mode, chess.chessGame, chess.turn, gameOverInfo, clock]);
 
@@ -588,12 +495,12 @@ export default function BoardWrapper() {
         if (!online) return;
 
         if (online.isConnected) {
-            online.findOnlineGame(user?.id);
+            online.findOnlineGame(null);
             handleOnlineStarted();
             return;
         }
         // when online.isConnected flips to true, this effect re-runs and will call findOnlineGame
-    }, [startFinding, online?.isConnected, online, handleOnlineStarted, user]);
+    }, [startFinding, online?.isConnected, online, handleOnlineStarted]);
 
     // Stop clocks when game is over in online friend mode
     useEffect(() => {

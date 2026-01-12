@@ -7,9 +7,7 @@ const path = require("path");
 require("dotenv").config();
 
 const { registerSocketHandlers } = require("./handlers/socket.handler");
-const userRoutes = require("./routes/user.route");
 const statsRoutes = require("./routes/stats.route");
-const { errorHandler } = require("./middleware/auth.middleware");
 // Admin initialization disabled
 // const { initializeAdminUser } = require("./controllers/user.controller");
 
@@ -45,7 +43,6 @@ app.use(express.static(distDir));
 // ============================================
 // ROUTES
 // ============================================
-app.use("/api/users", userRoutes);
 app.use("/api/stats", statsRoutes);
 
 // Health check
@@ -65,9 +62,6 @@ app.get(/^\/(?!api|socket).*/, (req, res) => {
   res.sendFile(path.join(distDir, 'index.html'));
 });
 
-// Error handling middleware
-app.use(errorHandler);
-
 // ============================================
 // SOCKET.IO EVENT HANDLERS
 // ============================================
@@ -85,7 +79,6 @@ console.log("🔧 Environment Configuration:");
 console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
 console.log(`   PORT: ${PORT}`);
 console.log(`   MONGO_URI: ${process.env.MONGO_URI ? '✓ Set' : '✗ Not set'}`);
-console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '✓ Set' : '✗ Not set'}`);
 
 mongoose
   .connect(process.env.MONGO_URI)

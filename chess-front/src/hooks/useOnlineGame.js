@@ -68,7 +68,8 @@ export function useOnlineGame(chessGameRef, setChessPosition, setMoveHistory, se
       if (!key) continue;
       
       // Clear specific game settings or the active game session
-      if (key.startsWith('chess_game_') || key === 'chess_active_game' || key === 'chess_active_bot_game') {
+      // Note: chess_active_bot_game is no longer used (bot games reset on reload)
+      if (key.startsWith('chess_game_') || key === 'chess_active_game') {
         // Don't remove the key for the game we are currently joining
         if (excludeGameId && key === `chess_game_${excludeGameId}`) continue;
         

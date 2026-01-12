@@ -55,9 +55,18 @@ export async function logSiteVisit() {
 }
 
 /**
+ * Generate a unique game ID for bot games
+ */
+function generateBotGameId() {
+  return 'bot_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now().toString(36);
+}
+
+/**
  * Log when a bot game is started
+ * Returns the generated gameId so it can be used for game completion tracking
  */
 export async function logBotGameStarted(skillLevel, playerColor) {
+  const gameId = generateBotGameId();
   try {
     await fetch('/api/stats/bot-game-started', {
       method: 'POST',
@@ -66,12 +75,15 @@ export async function logBotGameStarted(skillLevel, playerColor) {
         sessionId: getSessionId(),
         userId: getUserId(),
         skillLevel,
-        playerColor
+        playerColor,
+        gameId
       })
     });
-    console.log('[Stats] Bot game started logged');
+    console.log('[Stats] Bot game started logged:', gameId);
+    return gameId;
   } catch (error) {
     console.error('[Stats] Failed to log bot game started:', error);
+    return gameId; // Still return the ID even if logging failed
   }
 }
 

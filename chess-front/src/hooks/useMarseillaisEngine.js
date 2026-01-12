@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 // Import worker using Vite's worker import syntax - this bundles all dependencies
-import MarseillaisEngineWorker from '../workers/marseillais-engine.worker.js?worker';
+// v2 uses high-performance Int8Array mailbox engine with alpha-beta search
+import MarseillaisEngineWorker from '../workers/marseillais-engine-v2.worker.js?worker';
 
 const LEVELS = {
   1: { depth: 2, description: 'Easy' },
@@ -223,11 +224,19 @@ export function useMarseillaisEngine(
         resolve(movePair);
       });
 
+      // Determine if this is a single-move turn (balanced mode, first turn, white)
+      const moveHistoryLength = chessGame.history().length;
+      const currentTurn = chessGame.turn();
+      const isBalancedFirstTurn = !isUnbalanced && moveHistoryLength === 0 && currentTurn === 'w';
+      const maxMoves = isBalancedFirstTurn ? 1 : 2;
+      
       console.log('[useMarseillaisEngine] posting findBestMove', {
         requestId,
         skillLevel,
+        maxMoves,
+        isBalancedFirstTurn,
       });
-      worker.postMessage({ type: 'findBestMove', fen, skillLevel, requestId });
+      worker.postMessage({ type: 'findBestMove', fen, skillLevel, requestId, maxMoves });
     });
   }, [
     chessGame, 

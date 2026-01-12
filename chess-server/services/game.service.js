@@ -1,7 +1,6 @@
 const { Chess } = require("chess.js");
 const { CLOCK } = require("../config/constants");
 const Game = require("../models/game.model");
-const User = require("../models/user.model");
 const statsService = require("./stats.service");
 
 class GameService {

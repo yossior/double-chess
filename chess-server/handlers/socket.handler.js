@@ -1,9 +1,39 @@
 const gameService = require('../services/game.service');
+const statsService = require('../services/stats.service');
+
+/**
+ * Helper to extract client IP from socket handshake
+ */
+function getSocketClientIp(socket) {
+  // Check for forwarded IP (behind proxy/load balancer like Render, Nginx)
+  const forwarded = socket.handshake.headers['x-forwarded-for'];
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  // Check for real IP header
+  const realIp = socket.handshake.headers['x-real-ip'];
+  if (realIp) {
+    return realIp;
+  }
+  // Fallback to socket's remote address
+  return socket.handshake.address || null;
+}
+
+/**
+ * Helper to get user agent from socket handshake
+ */
+function getSocketUserAgent(socket) {
+  return socket.handshake.headers['user-agent'] || null;
+}
 
 /**
  * Register all socket event handlers for a client
  */
 function registerSocketHandlers(io, socket) {
+  // Store client info on socket data for later use
+  socket.data.ip = getSocketClientIp(socket);
+  socket.data.userAgent = getSocketUserAgent(socket);
+
   // Clock synchronization
   socket.on("sync_start", ({ t1_client }) => {
     const t2_server = Date.now();
@@ -58,6 +88,13 @@ function handleFindGame(io, socket, userId = null) {
 
   const { game, isNew } = gameService.findOrCreateGame(socket.id, effectiveUserId);
   
+  // Store IP and userAgent on the player record
+  const currentPlayer = game.players.find(p => p.socketId === socket.id);
+  if (currentPlayer) {
+    currentPlayer.ip = socket.data.ip;
+    currentPlayer.userAgent = socket.data.userAgent;
+  }
+  
   // Always join the socket to the game room
   socket.join(game.id);
   
@@ -74,6 +111,24 @@ function handleFindGame(io, socket, userId = null) {
     // Joined existing game, notify both players
     const white = game.players.find((p) => p.color === "w");
     const black = game.players.find((p) => p.color === "b");
+    
+    // Log PvP game started with both players' info
+    // In findGame, the first player (waiting) is white, second player is black
+    const gameCreatorColor = 'w'; // First player (white) created the game
+    statsService.logPvpGameStarted(
+      game.id,
+      {
+        ip: white?.ip || null,
+        userAgent: white?.userAgent || null,
+        userId: white?.userId || null
+      },
+      {
+        ip: black?.ip || null,
+        userAgent: black?.userAgent || null,
+        userId: black?.userId || null
+      },
+      gameCreatorColor
+    );
     
     // Notify both players individually with their color
     if (white?.socketId) {
@@ -162,6 +217,13 @@ async function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = n
   }
 
   const { game, role, reconnected } = result;
+
+  // Store IP and userAgent on the player record
+  const currentPlayer = game.players.find(p => p.socketId === socket.id);
+  if (currentPlayer) {
+    currentPlayer.ip = socket.data.ip;
+    currentPlayer.userAgent = socket.data.userAgent;
+  }
 
   // Join socket to the room
   socket.join(gameId);
@@ -256,6 +318,24 @@ async function handleJoinGame(io, socket, gameId, userId = null, timeMinutes = n
   // Two players - start the game
   const white = game.players.find((p) => p.color === "w");
   const black = game.players.find((p) => p.color === "b");
+
+  // Log PvP game started with both players' info
+  // Determine who created the game (the one who was already in the game)
+  const gameCreatorColor = currentPlayer.color === 'w' ? 'b' : 'w'; // The other player created the game
+  statsService.logPvpGameStarted(
+    gameId,
+    {
+      ip: white?.ip || null,
+      userAgent: white?.userAgent || null,
+      userId: white?.userId || null
+    },
+    {
+      ip: black?.ip || null,
+      userAgent: black?.userAgent || null,
+      userId: black?.userId || null
+    },
+    gameCreatorColor
+  );
 
   // Notify both players individually with their color
   if (white?.socketId) {
