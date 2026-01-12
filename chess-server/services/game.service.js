@@ -440,13 +440,10 @@ class GameService {
       const whitePlayer = game.players.find(p => p.color === 'w');
       const blackPlayer = game.players.find(p => p.color === 'b');
 
-      // Get moves - prefer chess.history() but fallback to historyMoves array
+      // Get moves from historyMoves array (not chess.history() which can be cleared by load())
+      // The double-move logic calls chess.load(newFen) which resets chess.js internal history
       let moves = [];
-      if (game.chess && typeof game.chess.history === 'function') {
-        moves = game.chess.history();
-      }
-      // Fallback: extract SANs from historyMoves if chess.history() is empty
-      if (moves.length === 0 && game.historyMoves && game.historyMoves.length > 0) {
+      if (game.historyMoves && game.historyMoves.length > 0) {
         moves = game.historyMoves.map(m => m.san).filter(Boolean);
       }
 

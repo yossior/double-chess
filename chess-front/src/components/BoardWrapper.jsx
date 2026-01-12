@@ -328,8 +328,9 @@ export default function BoardWrapper() {
     useEffect(() => {
         if (mode !== 'local' || !currentBotGameId) return;
         
-        // Get current moves and fen from the chess game
-        const moves = chess.chessGameRef.current?.history() || [];
+        // Use moveHistory state instead of chess.js history() because
+        // chess.js history is cleared when load(fen) is called during game restoration
+        const moves = (chess.moveHistory || []).map(m => m.san);
         const fen = chess.chessGameRef.current?.fen() || '';
         
         // Notify server of the current game state (only if moves have been made)
@@ -357,7 +358,7 @@ export default function BoardWrapper() {
         // Log timeout for bot games (friend games are logged server-side)
         if (mode === 'local') {
             logGameCompleted(currentBotGameId, 'timeout', winner, true, {
-                moves: chess.chessGame.history(),
+                moves: chess.moveHistory.map(m => m.san),
                 fen: chess.chessGame.fen()
             });
             // Notify server that bot game ended (server can stop tracking it)
@@ -476,7 +477,7 @@ export default function BoardWrapper() {
             
             // Log bot game resignation for analytics with full game data
             logGameCompleted(currentBotGameId, 'resignation', winner, true, {
-                moves: chess.chessGame.history(),
+                moves: chess.moveHistory.map(m => m.san),
                 fen: chess.chessGame.fen()
             });
             
@@ -511,7 +512,7 @@ export default function BoardWrapper() {
             
             // Log bot game completion for analytics with full game data
             logGameCompleted(currentBotGameId, reason, winner, true, {
-                moves: chess.chessGame.history(),
+                moves: chess.moveHistory.map(m => m.san),
                 fen: chess.chessGame.fen()
             });
             

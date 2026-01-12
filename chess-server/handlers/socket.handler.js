@@ -622,11 +622,6 @@ function handleBotGameMove(socket, gameId, moves, fen) {
   
   socket.data.botGame.moves = moves || [];
   socket.data.botGame.fen = fen || socket.data.botGame.fen;
-  
-  // Only log occasionally to avoid spam
-  if (moves && moves.length % 10 === 0) {
-    console.log(`[BotGame] Move update: ${gameId} (${moves.length} moves)`);
-  }
 }
 
 /**
