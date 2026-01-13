@@ -812,25 +812,25 @@ export function evaluate(state) {
   if (e5 === B_PAWN) score -= 40; // Black pawn on e5
   
   // Penalize exposed knights - knights on c3/f3 (White) or c6/f6 (Black) 
-  // that can be attacked by enemy d/e pawns still on starting squares
+  // that CAN be attacked by enemy d/e pawns (pawns on d5/e5, not d7/e7!)
   // This discourages double-knight development without pawn support
   const c3 = board[MAILBOX_64[42]]; // c3 square
   const f3 = board[MAILBOX_64[45]]; // f3 square
   const c6 = board[MAILBOX_64[18]]; // c6 square
   const f6 = board[MAILBOX_64[21]]; // f6 square
-  const d7pawn = board[MAILBOX_64[11]]; // d7 pawn
-  const e7pawn = board[MAILBOX_64[12]]; // e7 pawn
-  const d2pawn = board[MAILBOX_64[51]]; // d2 pawn
-  const e2pawn = board[MAILBOX_64[52]]; // e2 pawn
+  const d5pawn = board[MAILBOX_64[35]]; // d5 pawn (can attack c6/e6)
+  const e5pawn = board[MAILBOX_64[36]]; // e5 pawn (can attack d6/f6)
+  const d4pawn = board[MAILBOX_64[27]]; // d4 pawn (can attack c3/e3)
+  const e4pawn = board[MAILBOX_64[28]]; // e4 pawn (can attack d3/f3)
   
-  // Count exposed knights
+  // Count exposed knights (actually under attack by pawns)
   let whiteExposed = 0;
   let blackExposed = 0;
   
-  if (c3 === W_KNIGHT && d7pawn === B_PAWN) whiteExposed++;
-  if (f3 === W_KNIGHT && e7pawn === B_PAWN) whiteExposed++;
-  if (c6 === B_KNIGHT && d2pawn === W_PAWN) blackExposed++;
-  if (f6 === B_KNIGHT && e2pawn === W_PAWN) blackExposed++;
+  if (c3 === W_KNIGHT && d4pawn === B_PAWN) whiteExposed++;
+  if (f3 === W_KNIGHT && e4pawn === B_PAWN) whiteExposed++;
+  if (c6 === B_KNIGHT && d5pawn === W_PAWN) blackExposed++;
+  if (f6 === B_KNIGHT && e5pawn === W_PAWN) blackExposed++;
   
   // Penalize having exposed knights (worse if both are exposed)
   if (whiteExposed === 1) score -= 20;

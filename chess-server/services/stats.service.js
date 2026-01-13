@@ -91,7 +91,7 @@ class StatsService {
       // Save to games collection if we have moves data
       // This handles both bot games and abandoned friend games
       if (botGameData?.moves && Array.isArray(botGameData.moves) && botGameData.moves.length > 0) {
-        await this._saveGameToDb(gameId, result, winner, sessionId, userId, isBotGame, botGameData);
+        await this._saveGameToDb(gameId, result, winner, sessionId, userId, isBotGame, botGameData, userAgent, ip);
       }
       
       console.log(`[Stats] Game completed: ${gameId} (result: ${result}, winner: ${winner}, bot: ${isBotGame}, moves: ${botGameData?.moves?.length || 0})`);
@@ -104,7 +104,7 @@ class StatsService {
    * Save a game to the games collection
    * Works for both bot games and abandoned friend games
    */
-  async _saveGameToDb(gameId, result, winner, sessionId, userId, isBotGame, gameData) {
+  async _saveGameToDb(gameId, result, winner, sessionId, userId, isBotGame, gameData, userAgent = null, ip = null) {
     try {
       const { moves, fen, skillLevel, playerColor, isUnbalanced, startedAt } = gameData;
       
@@ -117,6 +117,11 @@ class StatsService {
         // User IDs if available
         white: playerColor === 'w' ? (userId || null) : null,
         black: playerColor === 'b' ? (userId || null) : null,
+        // IP addresses and user agents
+        whiteIp: playerColor === 'w' ? ip : null,
+        blackIp: playerColor === 'b' ? ip : null,
+        whiteUserAgent: playerColor === 'w' ? userAgent : null,
+        blackUserAgent: playerColor === 'b' ? userAgent : null,
         moves: moves || [],
         fen: fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         isUnbalanced: isUnbalanced !== undefined ? isUnbalanced : true,
