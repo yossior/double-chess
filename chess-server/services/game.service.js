@@ -4,6 +4,16 @@ const Game = require("../models/game.model");
 const User = require("../models/user.model");
 const statsService = require("./stats.service");
 
+/**
+ * Generate a position key from FEN for repetition detection.
+ * Only includes piece positions, side to move, castling, and en passant.
+ */
+function getPositionKey(fen) {
+  const parts = fen.split(' ');
+  // parts[0] = piece positions, parts[1] = side to move, parts[2] = castling, parts[3] = en passant
+  return `${parts[0]}|${parts[1]}|${parts[2]}|${parts[3]}`;
+}
+
 class GameService {
   constructor() {
     this.games = new Map();
@@ -29,6 +39,12 @@ class GameService {
     const chess = new Chess();
     const historyMoves = [];
     let movesInTurn = 0;
+    let halfMoveClock = 0;
+    const positionHistory = new Map();
+    
+    // Record initial position
+    const initialPosKey = getPositionKey(chess.fen());
+    positionHistory.set(initialPosKey, 1);
 
     for (let i = 0; i < moves.length; i++) {
       const san = moves[i];
@@ -57,6 +73,19 @@ class GameService {
       } else {
         movesInTurn = 0;
       }
+      
+      // Track draw conditions
+      const isPawnMove = result.piece === 'p';
+      const isCapture = !!result.captured;
+      if (isPawnMove || isCapture) {
+        halfMoveClock = 0;
+      } else {
+        halfMoveClock++;
+      }
+      
+      // Track position for repetition
+      const posKey = getPositionKey(chess.fen());
+      positionHistory.set(posKey, (positionHistory.get(posKey) || 0) + 1);
 
       historyMoves.push({
         san: result.san,
@@ -65,7 +94,7 @@ class GameService {
       });
     }
 
-    return { chess, historyMoves, movesInTurn };
+    return { chess, historyMoves, movesInTurn, halfMoveClock, positionHistory };
   }
 
   /**
@@ -98,7 +127,7 @@ class GameService {
     const isCompleted = this._isDbGameCompleted(dbGame);
     const gameIsUnbalanced = dbGame.isUnbalanced !== undefined ? dbGame.isUnbalanced : true;
     
-    const { chess, historyMoves, movesInTurn } = this._replayMovesForSpectator(dbGame.moves || [], gameIsUnbalanced);
+    const { chess, historyMoves, movesInTurn, halfMoveClock, positionHistory } = this._replayMovesForSpectator(dbGame.moves || [], gameIsUnbalanced);
 
     // Trust the persisted final FEN for the final position
     if (dbGame.fen) {
@@ -148,6 +177,9 @@ class GameService {
       gameResult: dbGame.result ?? null,
       winner: dbGame.winner ?? null,
       dbStatus: dbGame.status ?? null,
+      // Draw tracking - restored from replayed moves
+      positionHistory: positionHistory || new Map(),
+      halfMoveClock: halfMoveClock || 0,
     };
 
     this.games.set(gameId, game);
@@ -177,6 +209,11 @@ class GameService {
     const initialTimeMs = timeMinutes ? timeMinutes * 60 * 1000 : CLOCK.INITIAL_TIME_MS;
     const incrementMs = incrementSeconds !== null ? incrementSeconds * 1000 : CLOCK.INCREMENT_MS;
     
+    // Initialize position history for threefold repetition tracking
+    const initialPositionKey = getPositionKey(chess.fen());
+    const positionHistory = new Map();
+    positionHistory.set(initialPositionKey, 1);
+    
     const game = {
       id: gameId,
       chess,
@@ -196,6 +233,9 @@ class GameService {
       savedGameId: null, // MongoDB _id after saving
       gameResult: null, // 'checkmate', 'resignation', 'timeout', 'draw', etc.
       winner: null, // 'white', 'black', or null
+      // Draw tracking for Marseillais chess
+      positionHistory, // Map<positionKey, count> for threefold repetition
+      halfMoveClock: 0, // Moves since last pawn move or capture (for 50-move rule)
     };
 
     this.games.set(gameId, game);
@@ -390,6 +430,24 @@ class GameService {
     game.lastMoveTime = now;
 
     const fenAfter = game.chess.fen();
+    
+    // Track draw conditions (threefold repetition and 50-move rule)
+    // Update halfmove clock: reset on pawn move or capture, otherwise increment
+    const isPawnMove = result.piece === 'p';
+    const isCapture = !!result.captured;
+    if (isPawnMove || isCapture) {
+      game.halfMoveClock = 0;
+    } else {
+      game.halfMoveClock = (game.halfMoveClock || 0) + 1;
+    }
+    
+    // Track position for threefold repetition
+    if (!game.positionHistory) {
+      game.positionHistory = new Map();
+    }
+    const posKey = getPositionKey(fenAfter);
+    const posCount = (game.positionHistory.get(posKey) || 0) + 1;
+    game.positionHistory.set(posKey, posCount);
 
     // Store move with FEN, clock times, and server time for spectators
     game.historyMoves.push({ ...result, fen: fenAfter, whiteMs: game.whiteMs, blackMs: game.blackMs, serverTime: now });
@@ -413,12 +471,29 @@ class GameService {
     const game = this.games.get(gameId);
     if (!game) return null;
 
+    // Check chess.js built-in game over conditions
     if (game.chess.isGameOver()) {
       if (game.chess.isCheckmate()) return "checkmate";
       if (game.chess.isDraw()) return "draw";
       if (game.chess.isStalemate()) return "stalemate";
       return "unknown";
     }
+    
+    // Check for Marseillais-specific draw conditions
+    // Threefold repetition
+    if (game.positionHistory) {
+      const currentPosKey = getPositionKey(game.chess.fen());
+      const posCount = game.positionHistory.get(currentPosKey) || 0;
+      if (posCount >= 3) {
+        return "repetition";
+      }
+    }
+    
+    // 50-move rule (100 half-moves = 50 full moves)
+    if (game.halfMoveClock >= 100) {
+      return "fifty-move";
+    }
+    
     return null;
   }
 

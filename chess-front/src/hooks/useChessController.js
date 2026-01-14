@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Chess } from "chess.js";
+import { createDrawTracker } from "../utils/drawDetection";
 
 /**
  * Minimal chess controller that exposes a single object (chess).
@@ -8,11 +9,13 @@ import { Chess } from "chess.js";
 export function useChessController(clock, { enableClock = true, isUnbalanced = true, gameMode = "local" } = {}) {
   const chessGameRef = useRef(new Chess());
   const chessGame = chessGameRef.current;
+  const drawTrackerRef = useRef(createDrawTracker());
   const [initialFen, setInitialFen] = useState(chessGame.fen());
   const [chessPosition, setChessPosition] = useState(chessGame.fen());
   const [moveHistory, setMoveHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(null);
   const [turn, setTurn] = useState(chessGame.turn()); // 'w' or 'b'
+  const [drawStatus, setDrawStatus] = useState({ isRepetition: false, isFiftyMove: false, repetitionCount: 1, halfMoveClock: 0 });
 
   const [promotionMove, setPromotionMove] = useState(null);
   const [moveFrom, setMoveFrom] = useState("");
@@ -40,7 +43,9 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
   }, [chessGame]);
 
   const applyLocalMove = useCallback(({ from, to, promotion }, { recordHistory = true } = {}) => {
-    if (chessGame.isGameOver() || clock.status !== "" || resigned) return null;
+    // Block moves if game is over (including draws by repetition or 50-move rule)
+    const currentDrawStatus = drawTrackerRef.current.checkDrawStatus(chessGame.fen());
+    if (chessGame.isGameOver() || clock.status !== "" || resigned || currentDrawStatus.isRepetition || currentDrawStatus.isFiftyMove) return null;
     try {
       const prevMovesInTurn = movesInTurnRef.current;
       const move = chessGame.move({ from, to, promotion });
@@ -93,6 +98,10 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
       const fenAfterMove = chessGame.fen();
       setChessPosition(fenAfterMove);
       
+      // Track draw conditions (repetition and 50-move rule)
+      const newDrawStatus = drawTrackerRef.current.recordMove(move, fenAfterMove);
+      setDrawStatus(newDrawStatus);
+      
       if (recordHistory) {
         // Store full move object with FEN for history navigation
         // Note: move.color is who made the move.
@@ -142,6 +151,9 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
     setClockStarted(false);
     setMovesInTurn(0);
     setResigned(null);
+    // Reset draw tracking
+    drawTrackerRef.current.reset();
+    setDrawStatus({ isRepetition: false, isFiftyMove: false, repetitionCount: 1, halfMoveClock: 0 });
     if (!keepClock && clock?.reset) clock.reset();
 
     console.log("Game reset");
@@ -158,6 +170,7 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
     // refs & core
     chessGameRef,
     chessGame,
+    drawTrackerRef,
 
     // state setters/readers
     chessPosition,
@@ -171,6 +184,10 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
     turn,
     setTurn,
     resigned,
+    
+    // Draw tracking for Marseillais chess
+    drawStatus,
+    setDrawStatus,
 
     // UI helpers
     promotionMove,
@@ -192,5 +209,5 @@ export function useChessController(clock, { enableClock = true, isUnbalanced = t
 
     // initial position reference for history navigation
     initialFen,
-  }), [chessGameRef, chessGame, chessPosition, moveHistory, movesInTurn, historyIndex, turn, resigned, promotionMove, moveFrom, optionSquares, playerColor, getMoveOptions, applyLocalMove, resetGame, resign, initialFen]);
+  }), [chessGameRef, chessGame, chessPosition, moveHistory, movesInTurn, historyIndex, turn, resigned, drawStatus, promotionMove, moveFrom, optionSquares, playerColor, getMoveOptions, applyLocalMove, resetGame, resign, initialFen]);
 }

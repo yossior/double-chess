@@ -532,13 +532,16 @@ export default function BoardWrapper() {
     // Bot games are NOT persisted - page reload resets the game
     // (Friend games are still persisted via chess_active_game)
 
-    // Game over modal handler for local checkmates (not emitted via socket)
+    // Game over modal handler for local checkmates and draws (not emitted via socket)
     useEffect(() => {
         if (gameOverInfo) return;
         if (mode !== 'local') return;
+        
+        let reason = null;
+        let winner = null;
+        
+        // Check for checkmate or standard draw from chess.js
         if (chess.chessGame.isGameOver()) {
-            let reason = 'game over';
-            let winner = null;
             if (chess.chessGame.isCheckmate()) {
                 reason = 'checkmate';
                 winner = chess.turn === 'w' ? 'black' : 'white';
@@ -546,6 +549,20 @@ export default function BoardWrapper() {
                 reason = 'draw';
                 winner = null;
             }
+        }
+        
+        // Check for Marseillais-specific draw conditions (threefold repetition and 50-move rule)
+        if (!reason && chess.drawStatus) {
+            if (chess.drawStatus.isRepetition) {
+                reason = 'repetition';
+                winner = null;
+            } else if (chess.drawStatus.isFiftyMove) {
+                reason = 'fifty-move';
+                winner = null;
+            }
+        }
+        
+        if (reason) {
             setGameOverInfo({ reason, winner });
             clock.pause?.();
             
@@ -561,7 +578,7 @@ export default function BoardWrapper() {
             // Clear the bot game ID since it's finished
             setCurrentBotGameId(null);
         }
-    }, [mode, chess.chessGame, chess.turn, gameOverInfo, clock]);
+    }, [mode, chess.chessGame, chess.turn, chess.drawStatus, gameOverInfo, clock]);
 
     useEffect(() => {
         if (!startFinding) return;

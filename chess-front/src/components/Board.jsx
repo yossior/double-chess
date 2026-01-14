@@ -124,14 +124,16 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
     const currentTurn = chess.chessGame.turn();
     const isEngineTurn = currentTurn !== chess.playerColor;
     const isGameOver = chess.chessGame.isGameOver();
+    const isDrawByRepetition = chess.drawStatus?.isRepetition;
+    const isDrawByFiftyMove = chess.drawStatus?.isFiftyMove;
     const isBusy = !!(opponent?.isPlayingDoubleMove || opponent?.isRequestInFlight);
     
     // Engine only moves if:
     // 1. It's its turn
-    // 2. Game is not over
+    // 2. Game is not over (including draws by repetition or 50-move rule)
     // 3. User is not reviewing historical moves (viewIndex === null)
     // 4. Engine is not already performing another calculation
-    if (isEngineTurn && !isGameOver && viewIndex === null && !isBusy) {
+    if (isEngineTurn && !isGameOver && !isDrawByRepetition && !isDrawByFiftyMove && viewIndex === null && !isBusy) {
       console.log('[Board] Engine Move Triggered', { 
         turn: currentTurn, 
         playerColor: chess.playerColor,
@@ -160,7 +162,8 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
     chess.chessPosition, 
     chess.turn, 
     chess.movesInTurn, 
-    chess.playerColor, 
+    chess.playerColor,
+    chess.drawStatus,
     gameStarted, 
     mode, 
     viewIndex, 
@@ -170,8 +173,9 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
   ]);
 
   function handleMove({ from, to, promotion }) {
-    // Prevent moves if game is over
+    // Prevent moves if game is over (including draws by repetition or 50-move rule)
     if (gameOver || chess.chessGame.isGameOver() || clock.isTimeout()) return;
+    if (chess.drawStatus?.isRepetition || chess.drawStatus?.isFiftyMove) return;
     if (viewIndex !== null) onNavigate(null); // Snap to live
 
     const oldTurn = chess.chessGame.turn();
