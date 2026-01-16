@@ -877,6 +877,30 @@ export default function BoardWrapper() {
                         </div>
                     </div>
                 )}
+
+                {/* Incoming Draw Offer - mobile only - positioned above the board for visibility */}
+                {online?.drawOffer && !online?.isSpectator && (
+                    <div className="lg:hidden w-full px-2 mb-2">
+                        <div className="bg-blue-500/20 border border-blue-500/40 rounded-xl p-3 backdrop-blur-sm">
+                            <div className="text-blue-300 font-semibold mb-2 text-center text-sm">🤝 Draw Offered</div>
+                            <div className="text-xs text-blue-200 mb-3 text-center">Your opponent offers a draw</div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={online?.acceptDraw}
+                                    className="flex-1 py-2 px-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold text-sm rounded-lg transition-all shadow-lg border border-green-500/30"
+                                >
+                                    ✓ Accept
+                                </button>
+                                <button
+                                    onClick={online?.declineDraw}
+                                    className="flex-1 py-2 px-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-semibold text-sm rounded-lg transition-all shadow-lg border border-red-500/30"
+                                >
+                                    ✗ Decline
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 
                 {/* Top clock - mobile only (only show if timed game and not waiting) */}
                 {(mode === "friend" || isBotGameTimed) && !(mode === "friend" && online?.waiting) && (
@@ -909,30 +933,6 @@ export default function BoardWrapper() {
                             timeMs={getHistoricalClockTime('player')} 
                             label={getClockLabel('bottom')} 
                         />
-                    </div>
-                )}
-
-                {/* Incoming Draw Offer - mobile only */}
-                {online?.drawOffer && !online?.isSpectator && (
-                    <div className="lg:hidden w-full px-2">
-                        <div className="bg-blue-500/20 border border-blue-500/40 rounded-xl p-3 backdrop-blur-sm">
-                            <div className="text-blue-300 font-semibold mb-2 text-center text-sm">🤝 Draw Offered</div>
-                            <div className="text-xs text-blue-200 mb-3 text-center">Your opponent offers a draw</div>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={online?.acceptDraw}
-                                    className="flex-1 py-2 px-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold text-sm rounded-lg transition-all shadow-lg border border-green-500/30"
-                                >
-                                    ✓ Accept
-                                </button>
-                                <button
-                                    onClick={online?.declineDraw}
-                                    className="flex-1 py-2 px-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-semibold text-sm rounded-lg transition-all shadow-lg border border-red-500/30"
-                                >
-                                    ✗ Decline
-                                </button>
-                            </div>
-                        </div>
                     </div>
                 )}
 

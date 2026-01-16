@@ -392,10 +392,13 @@ export default function Board({ chess, mode = "local", opponent, clock, viewInde
             chess.setOptionSquares({});
           }
         }}
-        onTouchStart={(e) => {
-          // Prevent native page scroll when user touches the board (helps mobile drags)
-          // We intentionally call this on touch start so the first touch doesn't trigger a page scroll
-          addTouchPrevent();
+        onTouchStart={() => {
+          // Clear premoves when user touches the board on mobile
+          if (premoves.length > 0) {
+            clearPremoves();
+          }
+          // Note: We don't prevent scrolling here - scrolling is only prevented when
+          // the user actually starts dragging a piece (handled in onPieceDragBegin)
         }}
         onTouchEnd={() => removeTouchPrevent()}
         onTouchCancel={() => removeTouchPrevent()}

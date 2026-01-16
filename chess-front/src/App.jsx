@@ -16,7 +16,7 @@ function App() {
   // Log site visit on mount
   useEffect(() => {
     const sessionId = getSessionId();
-    const apiBase = import.meta.env.DEV ? 'http://localhost:5001' : '';
+    const apiBase = import.meta.env.DEV ? 'http://localhost:3001' : '';
     
     fetch(`${apiBase}/api/visit`, {
       method: 'POST',

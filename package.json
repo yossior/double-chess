@@ -7,7 +7,7 @@
     "chess-server"
   ],
   "scripts": {
-    "install:all": "npm install",
+    "install:all": "npm install && npm install --prefix chess-server && npm install --prefix chess-front",
     "dev": "concurrently \"npm run dev --host --prefix chess-server\" \"npm run dev --prefix chess-front\"",
     "build": "npm run build --prefix chess-front",
     "start": "npm --prefix chess-server start",

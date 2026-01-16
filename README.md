@@ -25,24 +25,27 @@ See [chess-front/src/workers/double-move-engine.js](./chess-front/src/workers/do
 ## Quick Start
 
 ```bash
-# Install
-npm install
-cd chess-front && npm install
-cd ../chess-server && npm install
+# Install all packages
+npm run install:all
 
 # Set up env
 cd chess-server
 cp .env.example .env
+# Edit .env and add your MongoDB connection string
 
-# Start MongoDB (Docker or Atlas)
-docker run -d -p 27017:27017 --name mongodb mongo:latest
-
-# Run (two terminals)
-cd chess-front && npm run dev
-cd chess-server && npm run dev
+# Run (from root - starts both frontend and server)
+npm run dev
 ```
 
 Frontend: http://localhost:5173
+
+### MongoDB Setup
+
+The backend requires MongoDB. The easiest option is [MongoDB Atlas](https://mongodb.com/atlas) (free tier available):
+
+1. Create a free cluster at mongodb.com/atlas
+2. Get your connection string
+3. Add it to `chess-server/.env` as `MONGODB_URI=your_connection_string`
 
 ## Tech Stack
 
