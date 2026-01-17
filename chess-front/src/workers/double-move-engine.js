@@ -1360,24 +1360,56 @@ export function evaluate(state) {
   }
   
   // =========================================================================
-  // PHASE 6: Castling
+  // PHASE 6: Castling and King Safety (CRITICAL in Marseillais Chess)
+  // In double-move chess, king safety is paramount - opponent can attack twice!
   // =========================================================================
-  if (state.castling & 0b1000) score += 30;
-  if (state.castling & 0b0100) score += 15;
-  if (state.castling & 0b0010) score -= 30;
-  if (state.castling & 0b0001) score -= 15;
   
-  // Castled bonus
-  if (state.whiteKingSq === 97) score += 80;
-  if (state.whiteKingSq === 93) score += 60;
-  if (state.blackKingSq === 27) score -= 80;
-  if (state.blackKingSq === 23) score -= 60;
+  // Bonus for still having castling rights (can castle later)
+  if (state.castling & 0b1000) score += 40;  // White kingside
+  if (state.castling & 0b0100) score += 20;  // White queenside
+  if (state.castling & 0b0010) score -= 40;  // Black kingside
+  if (state.castling & 0b0001) score -= 20;  // Black queenside
   
-  // King moved without castling - penalty
+  // BIG bonus for having castled - king is safe
+  if (state.whiteKingSq === 97) score += 150;  // White castled kingside
+  if (state.whiteKingSq === 93) score += 120;  // White castled queenside
+  if (state.blackKingSq === 27) score -= 150;  // Black castled kingside
+  if (state.blackKingSq === 23) score -= 120;  // Black castled queenside
+  
+  // HEAVY penalty for king on bad squares (moved without castling)
+  // f1/f8 is particularly bad - exposed on open file
+  const whiteKingOnF1 = state.whiteKingSq === 96; // f1
+  const blackKingOnF8 = state.blackKingSq === 26; // f8
+  if (whiteKingOnF1) score -= 200;
+  if (blackKingOnF8) score += 200;
+  
+  // General penalty for king not on starting square or castled position
   const whiteKingBad = state.whiteKingSq !== 95 && state.whiteKingSq !== 97 && state.whiteKingSq !== 93;
   const blackKingBad = state.blackKingSq !== 25 && state.blackKingSq !== 27 && state.blackKingSq !== 23;
-  if (whiteKingBad) score -= 80;
-  if (blackKingBad) score += 80;
+  if (whiteKingBad) score -= 120;
+  if (blackKingBad) score += 120;
+  
+  // EXTRA penalty: Lost castling rights while still in opening (undeveloped pieces)
+  // This catches the case where king moved and LOST the option to castle
+  const whiteLostCastling = (state.castling & 0b1100) === 0; // No white castling rights
+  const blackLostCastling = (state.castling & 0b0011) === 0; // No black castling rights
+  
+  if (whiteLostCastling && !whiteKingBad && state.whiteKingSq === 95) {
+    // White is on e1 but can't castle (rooks moved) - mild penalty
+    score -= 40;
+  }
+  if (blackLostCastling && !blackKingBad && state.blackKingSq === 25) {
+    // Black is on e8 but can't castle (rooks moved) - mild penalty
+    score += 40;
+  }
+  
+  // If still have undeveloped pieces but lost castling, extra penalty
+  if (whiteLostCastling && whiteUndeveloped >= 2 && whiteKingBad) {
+    score -= 100; // Moved king early while undeveloped = bad
+  }
+  if (blackLostCastling && blackUndeveloped >= 2 && blackKingBad) {
+    score += 100; // Moved king early while undeveloped = bad
+  }
   
   // =========================================================================
   // PHASE 7: Center Control (count attacks, not just pawns)
@@ -1849,6 +1881,151 @@ function scoreFirstMove(state, move) {
     score += PST[piece][pstIndex] / 2;
   }
   
+  // ENABLE-CAPTURE DETECTION: If this move enables a high-value capture on move 2
+  // Check what pieces can be captured from the destination square
+  // This is critical for double-move tactics like Nc5 Nxa4 winning a rook
+  if (captured === 0 && piece >= W_KNIGHT && piece <= W_QUEEN) {
+    const board = state.board;
+    const color = board[from] > 0 ? WHITE : BLACK;
+    let bestCaptureValue = 0;
+    
+    if (piece === W_KNIGHT) {
+      // Check knight's attack squares from destination
+      for (const offset of KNIGHT_OFFSETS) {
+        const targetSq = to + offset;
+        const target = board[targetSq];
+        if (target !== OFF_BOARD && target !== EMPTY && target * color < 0) {
+          const targetValue = PIECE_VALUES[Math.abs(target)];
+          if (targetValue > bestCaptureValue) {
+            bestCaptureValue = targetValue;
+          }
+        }
+      }
+    } else if (piece === W_BISHOP) {
+      // Check bishop's attack squares from destination
+      for (const offset of BISHOP_OFFSETS) {
+        let sq = to + offset;
+        while (board[sq] !== OFF_BOARD) {
+          if (board[sq] !== EMPTY) {
+            if (board[sq] * color < 0) {
+              const targetValue = PIECE_VALUES[Math.abs(board[sq])];
+              if (targetValue > bestCaptureValue) {
+                bestCaptureValue = targetValue;
+              }
+            }
+            break;
+          }
+          sq += offset;
+        }
+      }
+    } else if (piece === W_ROOK) {
+      // Check rook's attack squares from destination
+      for (const offset of ROOK_OFFSETS) {
+        let sq = to + offset;
+        while (board[sq] !== OFF_BOARD) {
+          if (board[sq] !== EMPTY) {
+            if (board[sq] * color < 0) {
+              const targetValue = PIECE_VALUES[Math.abs(board[sq])];
+              if (targetValue > bestCaptureValue) {
+                bestCaptureValue = targetValue;
+              }
+            }
+            break;
+          }
+          sq += offset;
+        }
+      }
+    } else if (piece === W_QUEEN) {
+      // Check queen's attack squares from destination
+      for (const offset of QUEEN_OFFSETS) {
+        let sq = to + offset;
+        while (board[sq] !== OFF_BOARD) {
+          if (board[sq] !== EMPTY) {
+            if (board[sq] * color < 0) {
+              const targetValue = PIECE_VALUES[Math.abs(board[sq])];
+              if (targetValue > bestCaptureValue) {
+                bestCaptureValue = targetValue;
+              }
+            }
+            break;
+          }
+          sq += offset;
+        }
+      }
+    }
+    
+    // Bonus proportional to what can be captured from destination
+    // Scale down since this is speculative (capture might be defended)
+    if (bestCaptureValue >= PIECE_VALUES[W_ROOK]) {
+      // High-value target (rook or queen) - worth exploring
+      score += bestCaptureValue / 2;
+    } else if (bestCaptureValue >= PIECE_VALUES[W_KNIGHT]) {
+      // Minor piece target - smaller bonus
+      score += bestCaptureValue / 4;
+    }
+  }
+  
+  // PAWN ENABLE-CAPTURE: Check if a pawn push enables a capture on the next move
+  // This is key for tactics like b5 bxa4 winning material
+  if (captured === 0 && piece === W_PAWN) {
+    const board = state.board;
+    const color = board[from] > 0 ? WHITE : BLACK;
+    const dir = color === WHITE ? -10 : 10;
+    let bestCaptureValue = 0;
+    
+    // Check what the pawn can capture from its destination
+    for (const capDir of [-1, 1]) {
+      const targetSq = to + dir + capDir;
+      const target = board[targetSq];
+      if (target !== OFF_BOARD && target !== EMPTY && target * color < 0) {
+        const targetValue = PIECE_VALUES[Math.abs(target)];
+        if (targetValue > bestCaptureValue) {
+          bestCaptureValue = targetValue;
+        }
+      }
+    }
+    
+    // Bonus for pawn moves that enable captures
+    if (bestCaptureValue >= PIECE_VALUES[W_ROOK]) {
+      score += bestCaptureValue / 2;
+    } else if (bestCaptureValue >= PIECE_VALUES[W_KNIGHT]) {
+      score += bestCaptureValue / 4;
+    }
+  }
+  
+  // KING MOVE PENALTY: Heavily penalize king moves that lose castling rights
+  if (piece === W_KING) {
+    const color = state.board[from] > 0 ? WHITE : BLACK;
+    const hasKingsideCastle = color === WHITE ? (state.castling & 0b1000) : (state.castling & 0b0010);
+    const hasQueensideCastle = color === WHITE ? (state.castling & 0b0100) : (state.castling & 0b0001);
+    
+    // Check if this is a castling move (king moves 2 squares)
+    const isCastling = Math.abs(to - from) === 2;
+    
+    if (isCastling) {
+      // Castling is great - boost it
+      score += 5000;
+    } else if (hasKingsideCastle || hasQueensideCastle) {
+      // Moving king when can castle = very bad
+      score -= 8000;
+    } else {
+      // Already lost castling but king moves are still usually bad
+      score -= 2000;
+    }
+  }
+  
+  // ROOK MOVE PENALTY: Penalize rook moves that lose castling rights
+  if (piece === W_ROOK) {
+    const color = state.board[from] > 0 ? WHITE : BLACK;
+    if (color === WHITE) {
+      if (from === 98 && (state.castling & 0b1000)) score -= 500; // h1 rook loses kingside
+      if (from === 91 && (state.castling & 0b0100)) score -= 300; // a1 rook loses queenside
+    } else {
+      if (from === 28 && (state.castling & 0b0010)) score -= 500; // h8 rook loses kingside
+      if (from === 21 && (state.castling & 0b0001)) score -= 300; // a8 rook loses queenside
+    }
+  }
+  
   return score;
 }
 
@@ -2071,6 +2248,8 @@ function scoreTurn(state, turn) {
     const captured = getMoveCaptured(move);
     const promotion = getMovePromotion(move);
     const flags = getMoveFlags(move);
+    const from = getMoveFrom(move);
+    const piece = Math.abs(board[from]);
     
     if (captured !== 0) {
       // Capture - MVV-LVA: prioritize capturing high-value pieces
@@ -2085,6 +2264,39 @@ function scoreTurn(state, turn) {
     if (promotion !== 0) {
       score += 800 + PIECE_VALUES[promotion];
     }
+    
+    // CASTLING: Very strong bonus - castling is almost always good
+    if (flags === FLAG_CASTLE) {
+      score += 8000; // Very high priority - king safety is critical in Marseillais
+    }
+    
+    // KING MOVES WITHOUT CASTLING: Heavy penalty for losing castling rights
+    if (piece === W_KING && flags !== FLAG_CASTLE) {
+      const color = board[from] > 0 ? WHITE : BLACK;
+      const hasKingsideCastle = color === WHITE ? (state.castling & 0b1000) : (state.castling & 0b0010);
+      const hasQueensideCastle = color === WHITE ? (state.castling & 0b0100) : (state.castling & 0b0001);
+      if (hasKingsideCastle || hasQueensideCastle) {
+        // Moving king when we can still castle = VERY bad, search these turns LAST
+        score -= 10000;
+      } else {
+        // Already lost castling, but moving king is still usually bad
+        score -= 3000;
+      }
+    }
+    
+    // ROOK MOVES that lose castling rights - also penalize
+    if (piece === W_ROOK) {
+      const color = board[from] > 0 ? WHITE : BLACK;
+      // Check if this rook is on its original square
+      if (color === WHITE) {
+        if (from === 98 && (state.castling & 0b1000)) score -= 1000; // h1 rook, has kingside
+        if (from === 91 && (state.castling & 0b0100)) score -= 500;  // a1 rook, has queenside
+      } else {
+        if (from === 28 && (state.castling & 0b0010)) score -= 1000; // h8 rook, has kingside
+        if (from === 21 && (state.castling & 0b0001)) score -= 500;  // a8 rook, has queenside
+      }
+    }
+    
     // Bonus for checks (first move giving check ends turn, so it's move1)
     if (turn.length === 1 && flags !== FLAG_CASTLE) {
       // Single-move turn might be a check
@@ -2266,7 +2478,98 @@ function evalWithHanging(state, color) {
   
   // In double-move chess, hanging pieces are VERY bad because
   // opponent can attack+capture in one turn. Apply 80% of the penalty.
-  return baseEval - Math.floor(ourHanging * 0.8) + Math.floor(theirHanging * 0.8);
+  let score = baseEval - Math.floor(ourHanging * 0.8) + Math.floor(theirHanging * 0.8);
+  
+  // Apply 50-move rule adjustment if approaching draw
+  score += get50MoveAdjustment(state, color, score);
+  
+  return score;
+}
+
+/**
+ * Check if the current position is a draw by repetition or 50-move rule.
+ * Returns true if it's a draw, false otherwise.
+ */
+function isDrawPosition(state) {
+  // 50-move rule: 100 half-moves without pawn move or capture
+  if (state.halfMoveClock >= 100) {
+    return true;
+  }
+  
+  // Threefold repetition
+  if (state.positionHistory) {
+    const hash = state.getPositionHash();
+    const count = state.positionHistory.get(hash) || 0;
+    if (count >= 3) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a position would be a draw after applying a turn.
+ * Returns the repetition count (3 = immediate draw).
+ */
+function getRepetitionCount(state) {
+  if (!state.positionHistory) return 0;
+  const hash = state.getPositionHash();
+  return state.positionHistory.get(hash) || 0;
+}
+
+/**
+ * Get draw score with contempt based on current evaluation.
+ * If we're winning, draws are bad (negative score).
+ * If we're losing, draws are good (positive score).
+ * This makes the engine avoid draws when ahead and seek them when behind.
+ */
+function getDrawScore(state, color) {
+  // Get a quick material evaluation to determine if we're winning or losing
+  const materialEval = evalForColor(state, color);
+  
+  // Contempt factor: how much we "dislike" draws
+  // Positive materialEval = we're winning, so draw is bad (return negative)
+  // Negative materialEval = we're losing, so draw is good (return positive)
+  const CONTEMPT = 50; // Base contempt value
+  
+  if (materialEval > 150) {
+    // We're clearly winning - avoid draws strongly
+    return -CONTEMPT - Math.min(materialEval / 10, 200);
+  } else if (materialEval < -150) {
+    // We're clearly losing - seek draws
+    return CONTEMPT + Math.min(-materialEval / 10, 200);
+  } else {
+    // Position is roughly equal - slight preference against draws (play for a win)
+    return -CONTEMPT / 2;
+  }
+}
+
+/**
+ * Get a score adjustment based on proximity to 50-move draw.
+ * When approaching 50 moves, adjust evaluation towards draw score.
+ */
+function get50MoveAdjustment(state, color, currentEval) {
+  const movesLeft = 100 - state.halfMoveClock;
+  
+  if (movesLeft > 20) {
+    // Plenty of time, no adjustment
+    return 0;
+  }
+  
+  // Calculate draw score
+  const drawScore = getDrawScore(state, color);
+  
+  if (movesLeft <= 5) {
+    // Very close to 50-move draw - blend heavily towards draw score
+    return Math.floor((drawScore - currentEval) * 0.7);
+  } else if (movesLeft <= 10) {
+    // Getting close - moderate blend
+    return Math.floor((drawScore - currentEval) * 0.4);
+  } else {
+    // 10-20 moves left - slight adjustment
+    return Math.floor((drawScore - currentEval) * 0.2);
+  }
 }
 
 /**
@@ -2275,6 +2578,11 @@ function evalWithHanging(state, color) {
  */
 function searchTurns(state, depth, alpha, beta, color) {
   nodesSearched++;
+  
+  // Check for draws BEFORE evaluating position
+  if (isDrawPosition(state)) {
+    return getDrawScore(state, color);
+  }
   
   // Leaf node - use hanging piece detection for tactical awareness
   if (depth <= 0) {
@@ -2299,7 +2607,7 @@ function searchTurns(state, depth, alpha, beta, color) {
     if (isInCheck(state, color)) {
       return -CHECKMATE_SCORE;
     }
-    return DRAW_SCORE; // Stalemate
+    return getDrawScore(state, color); // Stalemate - use draw score with contempt
   }
   
   // Order turns for better pruning - ALWAYS order at depth 1 to find captures first
@@ -2310,8 +2618,27 @@ function searchTurns(state, depth, alpha, beta, color) {
   for (const turn of orderedTurns) {
     const undoInfos = applyTurn(state, turn);
     
-    // Recurse - opponent's turn
-    const score = -searchTurns(state, depth - 1, -beta, -alpha, -color);
+    // Check for repetition after this turn
+    const repCount = getRepetitionCount(state);
+    let score;
+    
+    if (repCount >= 3) {
+      // This turn leads to immediate draw by repetition
+      score = -getDrawScore(state, -color);
+    } else if (repCount === 2) {
+      // This is the 2nd occurrence - opponent could force draw on next move
+      // Apply a penalty/bonus depending on position
+      score = -searchTurns(state, depth - 1, -beta, -alpha, -color);
+      // Adjust score towards draw if opponent is losing (they'll take the draw)
+      const oppEval = evalForColor(state, -color);
+      if (oppEval < -100) {
+        // Opponent is losing, they might repeat for a draw
+        score = Math.max(score, -getDrawScore(state, -color));
+      }
+    } else {
+      // Normal search
+      score = -searchTurns(state, depth - 1, -beta, -alpha, -color);
+    }
     
     undoTurn(state, turn, undoInfos);
     
@@ -2345,6 +2672,7 @@ function searchTurns(state, depth, alpha, beta, color) {
 /**
  * Find the best turn for the current position.
  * Uses iterative deepening for better move ordering.
+ * Considers draws by repetition and 50-move rule.
  */
 export function findBestTurn(state, depth = 2, color = undefined, maxMoves = 2) {
   nodesSearched = 0;
@@ -2352,6 +2680,12 @@ export function findBestTurn(state, depth = 2, color = undefined, maxMoves = 2) 
   
   if (color === undefined) {
     color = state.sideToMove;
+  }
+  
+  // Check if we're already in a drawn position
+  if (isDrawPosition(state)) {
+    log('[Engine] Position is already drawn');
+    // Still need to make a move, but any legal move will do
   }
   
   const turns = generateAllTurns(state, color, maxMoves);
@@ -2367,11 +2701,37 @@ export function findBestTurn(state, depth = 2, color = undefined, maxMoves = 2) 
   let alpha = -Infinity;
   const beta = Infinity;
   
+  // Track if we should prefer/avoid draws based on our position
+  const ourEval = evalForColor(state, color);
+  const preferDraw = ourEval < -200; // We're losing, prefer draws
+  const avoidDraw = ourEval > 200;   // We're winning, avoid draws
+  
   for (const turn of orderedTurns) {
     const undoInfos = applyTurn(state, turn);
     
-    // Search opponent's response
-    const score = -searchTurns(state, depth - 1, -beta, -alpha, -color);
+    // Check if this turn causes a draw
+    const repCount = getRepetitionCount(state);
+    let score;
+    
+    if (repCount >= 3) {
+      // This turn leads to immediate draw by repetition
+      score = getDrawScore(state, color);
+      log(`[Engine] Turn ${turnToString(state, turn)} causes repetition draw, score=${score}`);
+    } else {
+      // Search opponent's response
+      score = -searchTurns(state, depth - 1, -beta, -alpha, -color);
+      
+      // If this is the 2nd repetition, adjust score based on whether we want draws
+      if (repCount === 2) {
+        if (preferDraw) {
+          // We're losing - this turn could lead to a draw, which is good
+          score = Math.max(score, getDrawScore(state, color));
+        } else if (avoidDraw) {
+          // We're winning - penalize moves that could lead to draws
+          score = Math.min(score, score - 50);
+        }
+      }
+    }
     
     undoTurn(state, turn, undoInfos);
     
